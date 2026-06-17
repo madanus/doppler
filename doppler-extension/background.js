@@ -22,7 +22,10 @@ function handleTabActivity(tab) {
     if (!data.user) return; // Not logged in
     
     const user = data.user;
-    const serverUrl = data.serverUrl || DEFAULT_SERVER_URL;
+    let serverUrl = data.serverUrl;
+    if (!serverUrl || serverUrl.includes("localhost") || serverUrl.includes("127.0.0.1")) {
+      serverUrl = DEFAULT_SERVER_URL;
+    }
 
     // Check mode
     if (user.mode !== "learn") {

@@ -22,7 +22,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Restore State
   chrome.storage.local.get(["user", "serverUrl"], (data) => {
-    const serverUrl = data.serverUrl || DEFAULT_SERVER_URL;
+    // Force reset/update serverUrl to prevent stale local storage (like legacy localhost) from blocking connection
+    let serverUrl = data.serverUrl;
+    if (!serverUrl || serverUrl.includes("localhost") || serverUrl.includes("127.0.0.1")) {
+      serverUrl = DEFAULT_SERVER_URL;
+    }
     chrome.storage.local.set({ serverUrl });
 
     if (data.user) {
@@ -44,8 +48,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     
     chrome.storage.local.get(["serverUrl"], async (data) => {
-      const serverUrl = data.serverUrl || DEFAULT_SERVER_URL;
-      addLog("Attempting handshake...");
+      let serverUrl = data.serverUrl;
+      if (!serverUrl || serverUrl.includes("localhost") || serverUrl.includes("127.0.0.1")) {
+        serverUrl = DEFAULT_SERVER_URL;
+      }
+      addLog(`Attempting handshake with ${serverUrl}...`);
       
       try {
         const res = await fetch(`${serverUrl}/api/auth/login`, {
@@ -59,11 +66,14 @@ document.addEventListener("DOMContentLoaded", async () => {
           chrome.storage.local.set({ user });
           showActivePanel(user);
         } else {
-          addLog("Handshake failed: Invalid credentials.");
-          alert("Invalid credentials. Please use TouchTap demouser account.");
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.detail || "Invalid username or password under this company.";
+          addLog(`Handshake failed: ${errMsg}`);
+          alert(`Login Failed: ${errMsg}`);
         }
       } catch (err) {
         addLog(`Network Error: ${err.message}`);
+        alert(`Network Error: Could not connect to Doppler server at ${serverUrl}. Please check your internet connection and verify the server is running.`);
       }
     });
   });
