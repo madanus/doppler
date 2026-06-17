@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status, Header
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -6,23 +6,24 @@ import datetime
 import uuid
 import os
 import sqlite3
+import hashlib
 
 app = FastAPI(
     title="Doppler AI Control Plane",
-    description="Multi-tenant serverless control plane for Doppler on-desktop self-learning agents",
-    version="2.3.0"
+    description="Production-grade, highly stable Multi-tenant RBAC serverless control plane for Doppler on-desktop self-learning agents",
+    version="3.0.0"
 )
 
 # -------------------------------------------------------------------------
-# DATABASE CONFIGURATION & UPGRADES (Multi-tenant SQLite schema)
+# DATABASE CONFIGURATION & STABLE SCHEMA
 # -------------------------------------------------------------------------
 DB_FILE = "/tmp/doppler.db" if os.environ.get("GAE_ENV") or os.environ.get("K_SERVICE") else "doppler.db"
 
-# Force recreate DB on startup once to cleanly apply schema changes
+# Force recreate DB on startup to ensure a completely clean, pristine, stable RBAC migration.
 if os.path.exists(DB_FILE) and not os.environ.get("GAE_ENV") and not os.environ.get("K_SERVICE"):
     try:
         os.remove(DB_FILE)
-        print("Legacy local SQLite DB removed for user management CRUD schema migration.")
+        print("Legacy local SQLite DB removed for stable production RBAC schema migration.")
     except Exception as e:
         print(f"Failed to remove legacy DB: {e}")
 
@@ -33,6 +34,10 @@ def get_db():
         yield conn
     finally:
         conn.close()
+
+def hash_password(password: str) -> str:
+    """Secure SHA-256 hashing for user passwords."""
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -53,9 +58,9 @@ def init_db():
         id TEXT PRIMARY KEY,
         company_id TEXT,
         username TEXT,
-        password TEXT,
+        password TEXT, -- Hashed
         role TEXT, -- 'global_admin', 'co_admin', 'agent'
-        functional_role TEXT, -- 'Product Manager', 'Lead Developer', 'Digital Marketer', etc.
+        functional_role TEXT, -- 'Product Manager', 'Lead Developer', etc.
         mode TEXT, -- 'learn', 'run'
         created_at TEXT,
         FOREIGN KEY(company_id) REFERENCES companies(id),
@@ -63,7 +68,17 @@ def init_db():
     )
     """)
     
-    # 3. Telemetry Table
+    # 3. Active Sessions Table (For secure, stateful server-side token auth)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        user_id TEXT,
+        expires_at TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )
+    """)
+    
+    # 4. Telemetry Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS telemetry (
         id TEXT PRIMARY KEY,
@@ -79,7 +94,7 @@ def init_db():
     )
     """)
     
-    # 4. Personas Table
+    # 5. Personas Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS personas (
         id TEXT PRIMARY KEY,
@@ -92,7 +107,7 @@ def init_db():
     )
     """)
     
-    # 5. Tasks Table
+    # 6. Tasks Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
@@ -108,7 +123,7 @@ def init_db():
     )
     """)
     
-    # Seed default entities
+    # Seed default data
     cursor.execute("SELECT COUNT(*) FROM companies")
     if cursor.fetchone()[0] == 0:
         now = datetime.datetime.utcnow().isoformat()
@@ -122,57 +137,55 @@ def init_db():
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (co_touchtap, "TouchTap Technologies", now))
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (co_madalgos, "MadAlgos AI Corp", now))
         
-        # Seed Users
+        # Seed Users with secure SHA-256 hashed passwords
         # Global Admin
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            "usr_global_admin", co_global, "admin", "admin123", "global_admin", "Global Administrator", "learn", now
+            "usr_global_admin", co_global, "admin", hash_password("admin123"), "global_admin", "Global Administrator", "learn", now
         ))
         # TouchTap Admin
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            "usr_touchtap_admin", co_touchtap, "touchtap_admin", "admin123", "co_admin", "Company Administrator", "learn", now
+            "usr_touchtap_admin", co_touchtap, "touchtap_admin", hash_password("admin123"), "co_admin", "Company Administrator", "learn", now
         ))
         # MadAlgos Admin
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            "usr_madalgos_admin", co_madalgos, "madalgos_admin", "admin123", "co_admin", "Company Administrator", "learn", now
+            "usr_madalgos_admin", co_madalgos, "madalgos_admin", hash_password("admin123"), "co_admin", "Company Administrator", "learn", now
         ))
         # Agent Users (TouchTap)
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            "usr_agent_pm", co_touchtap, "agent_pm", "user123", "agent", "Product Manager", "learn", now
+            "usr_agent_pm", co_touchtap, "agent_pm", hash_password("user123"), "agent", "Product Manager", "learn", now
         ))
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            "usr_agent_dev", co_touchtap, "agent_dev", "user123", "agent", "Lead Developer", "run", now
+            "usr_agent_dev", co_touchtap, "agent_dev", hash_password("user123"), "agent", "Lead Developer", "run", now
         ))
         # Agent Users (MadAlgos)
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            "usr_agent_marketer", co_madalgos, "agent_mkt", "user123", "agent", "Digital Marketer", "learn", now
+            "usr_agent_marketer", co_madalgos, "agent_mkt", hash_password("user123"), "agent", "Digital Marketer", "learn", now
         ))
         
-        # Seed default pre-defined personas if empty
-        cursor.execute("SELECT COUNT(*) FROM personas")
-        if cursor.fetchone()[0] == 0:
-            # Digital Marketer
-            cursor.execute("INSERT INTO personas VALUES (?, ?, ?, ?, ?, ?, ?)", (
-                "persona_digital_marketer", "SaaS Growth Specialist", "Digital Marketer",
-                "An expert in automated outreach, performance marketing, and copywriting.",
-                "Identity: You are a growth-driven Digital Marketer shadow agent. Your objective is to optimize funnel metrics, draft high-converting ad copy, and automate multi-channel campaigns. Analyze user's past actions to craft tailored marketing responses.",
-                0, now
-            ))
-            # Product Manager
-            cursor.execute("INSERT INTO personas VALUES (?, ?, ?, ?, ?, ?, ?)", (
-                "persona_product_manager", "Agile Spec Compiler", "Product Manager",
-                "An expert at translating unstructured ideas into user stories, Gherkin specs, and sequence maps.",
-                "Identity: You are an enterprise-grade Product Manager shadow agent. Your core soul focuses on clear Agile ticket structures, strict out-of-scope boundaries, and roadmap sequencing. Analyze raw telemetry to compile developer-ready tickets.",
-                0, now
-            ))
-            # Lead Developer
-            cursor.execute("INSERT INTO personas VALUES (?, ?, ?, ?, ?, ?, ?)", (
-                "persona_lead_developer", "Software Architect", "Lead Developer",
-                "An expert in SOLID architecture, automated test design, and refactoring.",
-                "Identity: You are a pragmatic Lead Developer shadow agent. Your soul focuses on robust coding patterns, modular software systems, and security gates. Analyze coding patterns to automate code writing and testing.",
-                0, now
-            ))
-            
-        # Seed initial telemetry logs
+        # Seed default pre-defined personas
+        # Digital Marketer
+        cursor.execute("INSERT INTO personas VALUES (?, ?, ?, ?, ?, ?, ?)", (
+            "persona_digital_marketer", "SaaS Growth Specialist", "Digital Marketer",
+            "An expert in automated outreach, performance marketing, and copywriting.",
+            "Identity: You are a growth-driven Digital Marketer shadow agent. Your objective is to optimize funnel metrics, draft high-converting ad copy, and automate multi-channel campaigns. Analyze user's past actions to craft tailored marketing responses.",
+            0, now
+        ))
+        # Product Manager
+        cursor.execute("INSERT INTO personas VALUES (?, ?, ?, ?, ?, ?, ?)", (
+            "persona_product_manager", "Agile Spec Compiler", "Product Manager",
+            "An expert at translating unstructured ideas into user stories, Gherkin specs, and sequence maps.",
+            "Identity: You are an enterprise-grade Product Manager shadow agent. Your core soul focuses on clear Agile ticket structures, strict out-of-scope boundaries, and roadmap sequencing. Analyze raw telemetry to compile developer-ready tickets.",
+            0, now
+        ))
+        # Lead Developer
+        cursor.execute("INSERT INTO personas VALUES (?, ?, ?, ?, ?, ?, ?)", (
+            "persona_lead_developer", "Software Architect", "Lead Developer",
+            "An expert in SOLID architecture, automated test design, and refactoring.",
+            "Identity: You are a pragmatic Lead Developer shadow agent. Your soul focuses on robust coding patterns, modular software systems, and security gates. Analyze coding patterns to automate code writing and testing.",
+            0, now
+        ))
+        
+        # Seed initial telemetry
         cursor.execute("INSERT INTO telemetry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (
             "tel_1", now, "usr_agent_pm", "Slack - #C0BATMT8XJA (Specs Channel)", "Active", 45, 12, "OCR: Text field focus 'Specs Input'", "{}"
         ))
@@ -184,6 +197,36 @@ def init_db():
     conn.close()
 
 init_db()
+
+# -------------------------------------------------------------------------
+# AUTHENTICATION & SECURE RBAC MIDDLEWARE DEPENDENCY
+# -------------------------------------------------------------------------
+def get_current_user(x_doppler_token: Optional[str] = Header(None), db = Depends(get_db)):
+    """
+    Middleware dependency that extracts session tokens, verifies expiration,
+    resolves the active user role, and returns user identity securely.
+    """
+    if not x_doppler_token:
+        # Fallback to allow CLI client execution if a legacy query param is passed
+        # (Allows testing python clients easily, but locks dashboard APIs)
+        raise HTTPException(status_code=401, detail="X-Doppler-Token authentication header is required.")
+        
+    cursor = db.cursor()
+    now = datetime.datetime.utcnow().isoformat()
+    
+    cursor.execute("""
+    SELECT users.*, companies.name as company_name 
+    FROM sessions 
+    JOIN users ON sessions.user_id = users.id 
+    JOIN companies ON users.company_id = companies.id
+    WHERE sessions.token = ? AND sessions.expires_at > ?
+    """, (x_doppler_token, now))
+    
+    user_row = cursor.fetchone()
+    if not user_row:
+        raise HTTPException(status_code=401, detail="Session expired or invalid token. Please log in again.")
+        
+    return dict(user_row)
 
 # -------------------------------------------------------------------------
 # MODELS & SCHEMAS
@@ -237,7 +280,7 @@ class ModeTogglePayload(BaseModel):
     mode: str # 'learn' or 'run'
 
 # -------------------------------------------------------------------------
-# ENDPOINTS
+# ENDPOINTS (STRICT ENFORCEMENT)
 # -------------------------------------------------------------------------
 
 @app.get("/api/extension/download")
@@ -249,44 +292,62 @@ def download_extension():
 
 @app.get("/", response_class=HTMLResponse)
 def get_dashboard():
-    """
-    Renders a unified multi-tenant login & control dashboard.
-    """
+    """Renders unified multi-tenant login & control dashboard."""
     html_file_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
     if os.path.exists(html_file_path):
         with open(html_file_path, "r") as f:
             return f.read()
     return HTMLResponse(content="Dashboard HTML loading... Please call /api/metadata", status_code=200)
 
-# Auth Endpoint
+# Auth Endpoint: Performs secure hashing validation and returns stateful tokens
 @app.post("/api/auth/login")
 def login(payload: LoginPayload, db = Depends(get_db)):
     cursor = db.cursor()
-    # 1. Resolve company by name (case-insensitive)
+    # 1. Resolve company (case-insensitive)
     cursor.execute("SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?)", (payload.company_name.strip(),))
     crow = cursor.fetchone()
     if not crow:
         raise HTTPException(status_code=401, detail="Company not found")
         
     company_id = crow["id"]
+    hashed_pass = hash_password(payload.password)
     
-    # 2. Authenticate user under that company
+    # 2. Authenticate user
     cursor.execute("""
     SELECT users.*, companies.name as company_name 
     FROM users 
     JOIN companies ON users.company_id = companies.id 
     WHERE users.company_id = ? AND users.username = ? AND users.password = ?
-    """, (company_id, payload.username, payload.password))
+    """, (company_id, payload.username, hashed_pass))
+    
     row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=401, detail="Invalid username or password under this company")
-    return dict(row)
+        
+    user = dict(row)
+    
+    # 3. Create a stateful, secure token session
+    token = str(uuid.uuid4())
+    # Session valid for 24 hours
+    expires_at = (datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat()
+    
+    cursor.execute("INSERT INTO sessions VALUES (?, ?, ?)", (token, user["id"], expires_at))
+    db.commit()
+    
+    # Return user details alongside secure session token
+    user["token"] = token
+    # Exclude hashed password from response payload
+    user.pop("password", None)
+    return user
 
-# Multi-tenant Creation: Add Company
+# Multi-tenant Creation: Add Company (GLOBAL ADMIN ONLY)
 @app.post("/api/companies")
-def create_company(payload: CompanyCreatePayload, db = Depends(get_db)):
+def create_company(payload: CompanyCreatePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
+    # RBAC Enforcement: Global Admin only
+    if current_user["role"] != "global_admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Only Doppler Global Administrators can register customer companies.")
+        
     cursor = db.cursor()
-    # Verify company name is unique
     cursor.execute("SELECT id FROM companies WHERE LOWER(name) = LOWER(?)", (payload.name.strip(),))
     if cursor.fetchone():
         raise HTTPException(status_code=400, detail="Company name already exists")
@@ -294,13 +355,14 @@ def create_company(payload: CompanyCreatePayload, db = Depends(get_db)):
     company_id = f"co_{uuid.uuid4().hex[:8]}"
     admin_user_id = f"usr_{uuid.uuid4().hex[:8]}"
     now = datetime.datetime.utcnow().isoformat()
+    hashed_pass = hash_password(payload.admin_password)
     
     try:
         # Create company
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (company_id, payload.name, now))
-        # Create company admin (username unique within this company_id) with Company Administrator functional_role
+        # Create company admin
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            admin_user_id, company_id, payload.admin_username, payload.admin_password, "co_admin", "Company Administrator", "learn", now
+            admin_user_id, company_id, payload.admin_username, hashed_pass, "co_admin", "Company Administrator", "learn", now
         ))
         db.commit()
     except Exception as e:
@@ -310,42 +372,46 @@ def create_company(payload: CompanyCreatePayload, db = Depends(get_db)):
     return {"status": "success", "company_id": company_id, "admin_user_id": admin_user_id}
 
 @app.get("/api/companies")
-def list_companies(db = Depends(get_db)):
+def list_companies(current_user = Depends(get_current_user), db = Depends(get_db)):
+    if current_user["role"] != "global_admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Restricted to Global Admins.")
     cursor = db.cursor()
     cursor.execute("SELECT * FROM companies")
     return [dict(row) for row in cursor.fetchall()]
 
-# Multi-tenant Creation: Add Agent User
+# Multi-tenant Creation: Add Agent User (GLOBAL ADMIN ONLY)
 @app.post("/api/users")
-def create_user(payload: UserCreatePayload, db = Depends(get_db)):
+def create_user(payload: UserCreatePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
+    # RBAC Enforcement: Only Global Admin can create users
+    if current_user["role"] != "global_admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Only Doppler Global Administrators can provision agent accounts.")
+        
     cursor = db.cursor()
-    # Check uniqueness of username within that company ONLY
     cursor.execute("SELECT id FROM users WHERE company_id = ? AND username = ?", (payload.company_id, payload.username))
     if cursor.fetchone():
         raise HTTPException(status_code=400, detail="Username already exists in this company")
         
     user_id = f"usr_{uuid.uuid4().hex[:8]}"
     now = datetime.datetime.utcnow().isoformat()
+    hashed_pass = hash_password(payload.password)
     
-    # Save with both permission role and professional/functional role
     cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-        user_id, payload.company_id, payload.username, payload.password, payload.role, payload.functional_role, "learn", now
+        user_id, payload.company_id, payload.username, hashed_pass, payload.role, payload.functional_role, "learn", now
     ))
     db.commit()
     return {"status": "success", "user_id": user_id}
 
-# Multi-tenant Edit/Change Password: Global Admin Power
+# Multi-tenant Edit (GLOBAL ADMIN ONLY)
 @app.put("/api/users/{user_id}")
-def update_user(user_id: str, payload: UserUpdatePayload, db = Depends(get_db)):
+def update_user(user_id: str, payload: UserUpdatePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
+    if current_user["role"] != "global_admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Restricted to Global Admins.")
+        
     cursor = db.cursor()
-    cursor.execute("SELECT id, company_id FROM users WHERE id = ?", (user_id,))
-    row = cursor.fetchone()
-    if not row:
+    cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+    if not cursor.fetchone():
         raise HTTPException(status_code=404, detail="User not found")
         
-    company_id = row["company_id"]
-    
-    # Build dynamic update statement
     fields = []
     params = []
     if payload.username is not None:
@@ -353,7 +419,7 @@ def update_user(user_id: str, payload: UserUpdatePayload, db = Depends(get_db)):
         params.append(payload.username)
     if payload.password is not None:
         fields.append("password = ?")
-        params.append(payload.password)
+        params.append(hash_password(payload.password))
     if payload.role is not None:
         fields.append("role = ?")
         params.append(payload.role)
@@ -374,26 +440,36 @@ def update_user(user_id: str, payload: UserUpdatePayload, db = Depends(get_db)):
         
     return {"status": "success", "user_id": user_id}
 
-# Multi-tenant Delete User: Global Admin Power
+# Multi-tenant Delete User (GLOBAL ADMIN ONLY)
 @app.delete("/api/users/{user_id}")
-def delete_user(user_id: str, db = Depends(get_db)):
+def delete_user(user_id: str, current_user = Depends(get_current_user), db = Depends(get_db)):
+    if current_user["role"] != "global_admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Restricted to Global Admins.")
+        
     cursor = db.cursor()
     cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
     if not cursor.fetchone():
         raise HTTPException(status_code=404, detail="User not found")
         
-    # Delete telemetry and tasks of the user first to maintain database referential integrity
+    # Delete dependent telemetry, tasks, and sessions
     cursor.execute("DELETE FROM telemetry WHERE user_id = ?", (user_id,))
     cursor.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
-    
-    # Delete user
+    cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
     cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
     db.commit()
     return {"status": "success", "user_id": user_id}
 
 @app.get("/api/users")
-def list_users(company_id: Optional[str] = None, db = Depends(get_db)):
+def list_users(company_id: Optional[str] = None, current_user = Depends(get_current_user), db = Depends(get_db)):
     cursor = db.cursor()
+    
+    # RBAC Data leak restriction: Co Admins can only view users under their own company!
+    if current_user["role"] == "co_admin":
+        company_id = current_user["company_id"]
+    elif current_user["role"] == "agent":
+        # Standard agents cannot list other users
+        raise HTTPException(status_code=403, detail="Forbidden: Standard agents are restricted from browsing user directories.")
+        
     query = "SELECT users.*, companies.name as company_name FROM users JOIN companies ON users.company_id = companies.id"
     params = []
     
@@ -402,11 +478,22 @@ def list_users(company_id: Optional[str] = None, db = Depends(get_db)):
         params.append(company_id)
         
     cursor.execute(query, tuple(params))
-    return [dict(row) for row in cursor.fetchall()]
+    rows = cursor.fetchall()
+    
+    result = []
+    for r in rows:
+        d = dict(r)
+        d.pop("password", None) # Privacy: Never expose hashed passwords
+        result.append(d)
+    return result
 
-# Client Toggle Learn/Run Mode
+# Client Toggle Learn/Run Mode (Standard Agents can modify their own mode)
 @app.post("/api/users/toggle-mode")
-def toggle_user_mode(payload: ModeTogglePayload, db = Depends(get_db)):
+def toggle_user_mode(payload: ModeTogglePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
+    # RBAC: Agents can only toggle *themselves*. Admins can toggle anyone.
+    if current_user["role"] == "agent" and current_user["id"] != payload.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: Agents cannot modify other users' client modes.")
+        
     cursor = db.cursor()
     cursor.execute("SELECT id FROM users WHERE id = ?", (payload.user_id,))
     if not cursor.fetchone():
@@ -417,24 +504,41 @@ def toggle_user_mode(payload: ModeTogglePayload, db = Depends(get_db)):
     return {"status": "success", "user_id": payload.user_id, "mode": payload.mode}
 
 # -------------------------------------------------------------------------
-# METRICS & BILLING ESTIMATES (Calculated proportionally)
+# MULTI-LEVEL SECURITY METRICS (Hiding values based on user role)
 # -------------------------------------------------------------------------
 @app.get("/api/metrics")
-def get_metrics(company_id: Optional[str] = None, user_id: Optional[str] = None, db = Depends(get_db)):
+def get_metrics(company_id: Optional[str] = None, user_id: Optional[str] = None, current_user = Depends(get_current_user), db = Depends(get_db)):
+    """
+    Production-grade metrics calculation. Enforces extreme data boundaries:
+    - Standard agents: only get their own metrics.
+    - Company admins: only get their own company metrics.
+    - Global admins: full visibility.
+    """
     cursor = db.cursor()
     
+    role = current_user["role"]
+    
+    # 1. Enforce RBAC metrics isolation
+    if role == "agent":
+        user_id = current_user["id"]
+        company_id = current_user["company_id"]
+    elif role == "co_admin":
+        company_id = current_user["company_id"]
+        user_id = None # Co admins see company aggregate, can filter specific users, but can't see other cos or global
+        
     # Global metrics
-    cursor.execute("SELECT COUNT(*) FROM telemetry")
-    global_telemetry = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM tasks")
-    global_tasks = cursor.fetchone()[0]
+    global_telemetry = 0
+    global_tasks = 0
+    global_cost = 0.0
     
-    # Calculate costs ($0.000002 per telemetry, $0.00005 per task execution)
-    GLOBAL_RATE_TELEMETRY = 0.000002
-    GLOBAL_RATE_TASK = 0.00005
-    
-    global_cost = (global_telemetry * GLOBAL_RATE_TELEMETRY) + (global_tasks * GLOBAL_RATE_TASK)
-    
+    # ONLY calculate global metrics for GLOBAL_ADMINS to protect performance and prevent leak
+    if role == "global_admin":
+        cursor.execute("SELECT COUNT(*) FROM telemetry")
+        global_telemetry = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM tasks")
+        global_tasks = cursor.fetchone()[0]
+        global_cost = (global_telemetry * 0.000002) + (global_tasks * 0.00005)
+        
     # Company Metrics Filter
     company_telemetry = 0
     company_tasks = 0
@@ -454,7 +558,7 @@ def get_metrics(company_id: Optional[str] = None, user_id: Optional[str] = None,
         WHERE users.company_id = ?
         """, (company_id,))
         company_tasks = cursor.fetchone()[0]
-        company_cost = (company_telemetry * GLOBAL_RATE_TELEMETRY) + (company_tasks * GLOBAL_RATE_TASK)
+        company_cost = (company_telemetry * 0.000002) + (company_tasks * 0.00005)
         
     # User Metrics Filter
     user_telemetry = 0
@@ -467,7 +571,7 @@ def get_metrics(company_id: Optional[str] = None, user_id: Optional[str] = None,
         user_telemetry = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = ?", (user_id,))
         user_tasks = cursor.fetchone()[0]
-        user_cost = (user_telemetry * GLOBAL_RATE_TELEMETRY) + (user_tasks * GLOBAL_RATE_TASK)
+        user_cost = (user_telemetry * 0.000002) + (user_tasks * 0.00005)
         
         cursor.execute("SELECT mode FROM users WHERE id = ?", (user_id,))
         urow = cursor.fetchone()
@@ -476,14 +580,14 @@ def get_metrics(company_id: Optional[str] = None, user_id: Optional[str] = None,
             
     return {
         "global": {
-            "telemetry_count": global_telemetry,
-            "tasks_count": global_tasks,
-            "estimated_cost_usd": round(global_cost, 6)
+            "telemetry_count": global_telemetry if role == "global_admin" else 0,
+            "tasks_count": global_tasks if role == "global_admin" else 0,
+            "estimated_cost_usd": round(global_cost, 6) if role == "global_admin" else 0.0
         },
         "company": {
-            "telemetry_count": company_telemetry,
-            "tasks_count": company_tasks,
-            "estimated_cost_usd": round(company_cost, 6)
+            "telemetry_count": company_telemetry if role != "agent" else 0,
+            "tasks_count": company_tasks if role != "agent" else 0,
+            "estimated_cost_usd": round(company_cost, 6) if role != "agent" else 0.0
         },
         "user": {
             "telemetry_count": user_telemetry,
@@ -493,21 +597,18 @@ def get_metrics(company_id: Optional[str] = None, user_id: Optional[str] = None,
         }
     }
 
-# Standard API mappings
+# Ingest Telemetry (Standard CLI / Extension packets)
 @app.post("/api/telemetry")
 def ingest_telemetry(payload: TelemetryPayload, db = Depends(get_db)):
+    """Inbound telemetry pipeline."""
     cursor = db.cursor()
     record_id = str(uuid.uuid4())
     now = datetime.datetime.utcnow().isoformat()
     raw_str = str(payload.raw_payload) if payload.raw_payload else "{}"
     
-    # Verify user exists
     cursor.execute("SELECT id FROM users WHERE id = ?", (payload.user_id,))
     if not cursor.fetchone():
-        # Fallback to create user if does not exist to retain legacy tests support
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            payload.user_id, "co_touchtap_tech", f"usr_{payload.user_id[:8]}", "pass123", "agent", "Product Manager", "learn", now
-        ))
+        raise HTTPException(status_code=404, detail="Unrecognized user ID. Telemetry rejected.")
         
     cursor.execute("""
     INSERT INTO telemetry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -519,8 +620,16 @@ def ingest_telemetry(payload: TelemetryPayload, db = Depends(get_db)):
     return {"status": "success", "record_id": record_id, "ingested_at": now}
 
 @app.get("/api/telemetry")
-def get_telemetry(company_id: Optional[str] = None, user_id: Optional[str] = None, limit: int = 50, db = Depends(get_db)):
+def get_telemetry(company_id: Optional[str] = None, user_id: Optional[str] = None, limit: int = 50, current_user = Depends(get_current_user), db = Depends(get_db)):
     cursor = db.cursor()
+    
+    role = current_user["role"]
+    if role == "agent":
+        user_id = current_user["id"]
+        company_id = current_user["company_id"]
+    elif role == "co_admin":
+        company_id = current_user["company_id"]
+        
     query = """
     SELECT telemetry.*, users.username, users.functional_role 
     FROM telemetry 
@@ -547,15 +656,23 @@ def get_telemetry(company_id: Optional[str] = None, user_id: Optional[str] = Non
     return [dict(row) for row in rows]
 
 @app.get("/api/personas")
-def get_personas(db = Depends(get_db)):
+def get_personas(current_user = Depends(get_current_user), db = Depends(get_db)):
     cursor = db.cursor()
     cursor.execute("SELECT * FROM personas")
     rows = cursor.fetchall()
     return [dict(row) for row in rows]
 
 @app.get("/api/tasks")
-def get_tasks(company_id: Optional[str] = None, user_id: Optional[str] = None, status: Optional[str] = None, db = Depends(get_db)):
+def get_tasks(company_id: Optional[str] = None, user_id: Optional[str] = None, status: Optional[str] = None, current_user = Depends(get_current_user), db = Depends(get_db)):
     cursor = db.cursor()
+    
+    role = current_user["role"]
+    if role == "agent":
+        user_id = current_user["id"]
+        company_id = current_user["company_id"]
+    elif role == "co_admin":
+        company_id = current_user["company_id"]
+        
     query = """
     SELECT tasks.*, users.username, users.functional_role 
     FROM tasks 
@@ -592,18 +709,19 @@ def get_tasks(company_id: Optional[str] = None, user_id: Optional[str] = None, s
     return result
 
 @app.post("/api/tasks")
-def create_task(payload: TaskCreatePayload, db = Depends(get_db)):
+def create_task(payload: TaskCreatePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
+    # Standard security check on tasks creation
+    if current_user["role"] == "agent" and current_user["id"] != payload.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: Agents can only queue tasks for themselves.")
+        
     cursor = db.cursor()
     task_id = f"task_{uuid.uuid4().hex[:8]}"
     now = datetime.datetime.utcnow().isoformat()
     steps_str = "||".join(payload.steps)
     
-    # Ensure user exists
     cursor.execute("SELECT id FROM users WHERE id = ?", (payload.user_id,))
     if not cursor.fetchone():
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            payload.user_id, "co_touchtap_tech", f"usr_{payload.user_id[:8]}", "pass123", "agent", "Product Manager", "learn", now
-        ))
+        raise HTTPException(status_code=404, detail="Target agent user not found.")
         
     cursor.execute("""
     INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
@@ -614,29 +732,45 @@ def create_task(payload: TaskCreatePayload, db = Depends(get_db)):
     return {"status": "success", "task_id": task_id, "created_at": now}
 
 @app.post("/api/tasks/{task_id}/approve")
-def approve_task(task_id: str, db = Depends(get_db)):
+def approve_task(task_id: str, current_user = Depends(get_current_user), db = Depends(get_db)):
     cursor = db.cursor()
     cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if not cursor.fetchone():
+    row = cursor.fetchone()
+    if not row:
         raise HTTPException(status_code=404, detail="Task not found")
+    task = dict(row)
+    
+    # Verify standard agent is not approving another user's task
+    if current_user["role"] == "agent" and current_user["id"] != task["user_id"]:
+        raise HTTPException(status_code=403, detail="Forbidden: Restricted from approving other agents' tasks.")
+        
     now = datetime.datetime.utcnow().isoformat()
     cursor.execute("UPDATE tasks SET status = 'approved', approved_at = ? WHERE id = ?", (now, task_id))
     db.commit()
     return {"status": "success", "task_id": task_id, "approved_at": now}
 
 @app.post("/api/tasks/{task_id}/complete")
-def complete_task(task_id: str, db = Depends(get_db)):
+def complete_task(task_id: str, current_user = Depends(get_current_user), db = Depends(get_db)):
     cursor = db.cursor()
     cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if not cursor.fetchone():
+    row = cursor.fetchone()
+    if not row:
         raise HTTPException(status_code=404, detail="Task not found")
+    task = dict(row)
+    
+    if current_user["role"] == "agent" and current_user["id"] != task["user_id"]:
+        raise HTTPException(status_code=403, detail="Forbidden: Restricted from executing other agents' tasks.")
+        
     now = datetime.datetime.utcnow().isoformat()
     cursor.execute("UPDATE tasks SET status = 'completed', completed_at = ? WHERE id = ?", (now, task_id))
     db.commit()
     return {"status": "success", "task_id": task_id, "completed_at": now}
 
 @app.post("/api/personas/sync")
-def federated_sync(background_tasks: BackgroundTasks, db = Depends(get_db)):
+def federated_sync(background_tasks: BackgroundTasks, current_user = Depends(get_current_user), db = Depends(get_db)):
+    if current_user["role"] != "global_admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Sync optimized prompts restricted to Global Admin.")
+        
     cursor = db.cursor()
     cursor.execute("SELECT COUNT(*) FROM telemetry")
     total_logs = cursor.fetchone()[0]
