@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      width: 320px;
+      background-color: #030712;
+      color: #f3f4f6;
+    }
+  </style>
+</head>
+<body class="p-4 antialiased">
+  <div class="space-y-4">
+    <!-- Header -->
+    <div class="flex items-center gap-2 pb-3 border-b border-gray-800">
+      <div class="w-6 h-6 rounded bg-indigo-600 flex items-center justify-center font-bold text-sm text-white">D</div>
+      <div>
+        <h1 class="text-sm font-bold text-white leading-none">Doppler AI</h1>
+        <p class="text-[9px] text-gray-500 font-mono mt-0.5">Desktop Learning Assistant</p>
+      </div>
+    </div>
+
+    <!-- Login Panel (shown when not logged in) -->
+    <div id="panel-login" class="space-y-3">
+      <h3 class="text-xs font-bold text-gray-400 uppercase font-mono">Sign in to Doppler</h3>
+      <div class="space-y-2">
+        <input type="text" id="ext-username" class="w-full bg-gray-900 border border-gray-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="agent_pm">
+        <input type="password" id="ext-password" class="w-full bg-gray-900 border border-gray-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Password">
+      </div>
+      <button id="btn-login" class="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-xs font-bold rounded text-white transition duration-150">
+        Connect
+      </button>
+    </div>
+
+    <!-- Active Assistant Panel (shown when logged in) -->
+    <div id="panel-active" class="hidden space-y-4">
+      <!-- User ID and Company -->
+      <div class="flex items-center justify-between text-xs">
+        <div>
+          <h4 id="user-info" class="font-bold text-white">👤 username</h4>
+          <p id="co-info" class="text-[9px] text-gray-500">TouchTap Technologies</p>
+        </div>
+        <button id="btn-logout" class="text-[10px] text-gray-400 hover:text-white font-mono">Logout</button>
+      </div>
+
+      <!-- Toggle Modes -->
+      <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-between">
+        <span class="text-xs font-semibold text-gray-300">Self-Learning Mode:</span>
+        <div class="flex items-center gap-1 bg-gray-950 p-1 rounded border border-gray-800">
+          <button id="toggle-learn" class="text-[10px] font-bold px-2 py-0.5 rounded transition">LEARN</button>
+          <button id="toggle-run" class="text-[10px] font-bold px-2 py-0.5 rounded transition">RUN</button>
+        </div>
+      </div>
+
+      <!-- Log Stream -->
+      <div class="space-y-1.5">
+        <div class="flex justify-between items-center text-[10px] font-mono text-gray-400">
+          <span>LOCAL LOG STREAM:</span>
+          <span class="text-green-400 font-bold">PII FILTER ACTIVE</span>
+        </div>
+        <div id="logs-container" class="bg-gray-950 border border-gray-900 p-2.5 rounded text-[9px] font-mono text-gray-500 max-h-[80px] overflow-y-auto space-y-1">
+          <div>[09:42:01] System booted.</div>
+          <div>[09:42:05] Observer polling tabs...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

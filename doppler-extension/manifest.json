@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Doppler AI - On-Desktop Learning Assistant",
+  "version": "1.0.0",
+  "description": "Scrapes active tab telemetry and coordinates with the Doppler serverless SaaS control plane.",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://*.run.app/*",
+    "http://localhost/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

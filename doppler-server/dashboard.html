@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doppler AI - Control Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #030712;
+            color: #f3f4f6;
+        }
+        .pulse-dot {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: .5; transform: scale(1.1); }
+        }
+        .flow-line {
+            stroke-dasharray: 8;
+            animation: dash 3s linear infinite;
+        }
+        @keyframes dash {
+            to { stroke-dashoffset: -40; }
+        }
+    </style>
+</head>
+<body class="font-sans antialiased min-h-screen flex flex-col">
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="flex-1 flex items-center justify-center p-6">
+        <div class="max-w-md w-full bg-gray-950 border border-gray-800 p-8 rounded-2xl shadow-2xl space-y-6">
+            <div class="text-center space-y-2">
+                <div class="inline-flex w-12 h-12 rounded-xl bg-indigo-600 items-center justify-center font-bold text-2xl text-white">D</div>
+                <h2 class="text-2xl font-bold tracking-tight text-white">Sign in to Doppler Control Hub</h2>
+                <p class="text-xs text-gray-400">Enterprise AI Self-Learning Control Panel</p>
+            </div>
+            
+            <form onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-mono text-gray-400 uppercase font-semibold mb-1">Username</label>
+                    <input type="text" id="login-username" required class="w-full bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="admin, touchtap_admin, agent_pm">
+                </div>
+                <div>
+                    <label class="block text-xs font-mono text-gray-400 uppercase font-semibold mb-1">Password</label>
+                    <input type="password" id="login-password" required class="w-full bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="admin123 or user123">
+                </div>
+                <button type="submit" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-semibold text-sm text-white transition duration-150">
+                    Sign In
+                </button>
+            </form>
+            
+            <div class="border-t border-gray-900 pt-4 text-center">
+                <p class="text-[10px] text-gray-500 font-mono">Demo Accounts: admin / admin123 (Global) | touchtap_admin / admin123 (Co Admin) | agent_pm / user123 (Agent)</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD CONTENT (HIDDEN BY DEFAULT) -->
+    <div id="dashboard-screen" class="hidden flex-1 flex flex-col">
+        <!-- Header -->
+        <header class="border-b border-gray-800 bg-gray-950/80 backdrop-blur px-6 py-4">
+            <div class="max-w-7xl mx-auto flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-lg text-white">D</div>
+                    <div>
+                        <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                            Doppler AI <span id="user-role-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 font-bold uppercase tracking-wider">Role</span>
+                        </h1>
+                        <p id="user-company-text" class="text-xs text-gray-400">Loading company profile...</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-green-500 pulse-dot"></span>
+                        <span class="text-xs text-green-400 font-medium font-mono uppercase tracking-wider">GCP Active</span>
+                    </div>
+                    <div class="h-6 w-px bg-gray-800"></div>
+                    <button onclick="logout()" class="text-xs text-gray-400 hover:text-white font-semibold transition">
+                        🚪 Logout
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Body -->
+        <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+            
+            <!-- ROW 1: Multi-level Cost Split Summary -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Global Level Cost -->
+                <div class="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 uppercase font-semibold font-mono">Global Infrastructure Cost</span>
+                    <div class="mt-2">
+                        <span id="cost-global" class="text-3xl font-bold text-white font-mono">$0.00</span>
+                        <span class="text-xs text-gray-400 ml-1">/ Month</span>
+                    </div>
+                    <p class="text-[10px] text-gray-500 mt-2">All companies & agent telemetry aggregates</p>
+                </div>
+                <!-- Company Level Cost -->
+                <div class="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 uppercase font-semibold font-mono">Company Share Cost</span>
+                    <div class="mt-2">
+                        <span id="cost-company" class="text-3xl font-bold text-indigo-400 font-mono">$0.00</span>
+                        <span class="text-xs text-gray-400 ml-1">/ Month</span>
+                    </div>
+                    <p class="text-[10px] text-gray-500 mt-2">Proportional calculation based on company telemetry</p>
+                </div>
+                <!-- User Level Cost -->
+                <div class="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 uppercase font-semibold font-mono">Your Individual Session Cost</span>
+                    <div class="mt-2">
+                        <span id="cost-user" class="text-3xl font-bold text-purple-400 font-mono">$0.00</span>
+                        <span class="text-xs text-gray-400 ml-1">/ Month</span>
+                    </div>
+                    <p class="text-[10px] text-gray-500 mt-2">Individual user resource footprint</p>
+                </div>
+            </div>
+
+            <!-- ROW 2: Multi-tenant Panels based on Roles -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- Left/Middle Columns: Dynamic based on role -->
+                <div class="lg:col-span-2 space-y-6">
+                    
+                    <!-- GLOBAL ADMIN VIEW PANEL -->
+                    <div id="panel-global-admin" class="hidden bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-6">
+                        <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">🏢 Global Operations: Manage Customer Companies</h3>
+                        
+                        <!-- Create Company Form -->
+                        <form onsubmit="handleCreateCompany(event)" class="bg-gray-900/40 border border-gray-800 p-4 rounded-xl space-y-4">
+                            <h4 class="text-xs font-bold text-white uppercase font-mono">➕ Onboard New Customer Company</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <input type="text" id="new-co-name" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans" placeholder="Company Name (e.g. Acme Corp)">
+                                <input type="text" id="new-co-admin-user" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Admin Username">
+                                <input type="password" id="new-co-admin-pass" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Admin Password">
+                            </div>
+                            <button type="submit" class="text-xs px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white font-semibold transition">
+                                Provision Company
+                            </button>
+                        </form>
+
+                        <!-- Companies List -->
+                        <div class="space-y-2">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase font-mono">Active Companies Registered</h4>
+                            <div id="global-companies-list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <!-- Dynamically filled -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- COMPANY ADMIN VIEW PANEL -->
+                    <div id="panel-co-admin" class="hidden bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-6">
+                        <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">👥 Customer Co Workspace: Manage Agent Users</h3>
+                        
+                        <!-- Create Agent User Form -->
+                        <form onsubmit="handleCreateAgent(event)" class="bg-gray-900/40 border border-gray-800 p-4 rounded-xl space-y-4">
+                            <h4 class="text-xs font-bold text-white uppercase font-mono">➕ Provision New Agent User</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <input type="text" id="new-usr-username" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Agent Username">
+                                <input type="password" id="new-usr-password" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Agent Password">
+                                <select id="new-usr-role" class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <option value="agent">Standard Agent</option>
+                                    <option value="co_admin">Co-level Admin</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="text-xs px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white font-semibold transition">
+                                Provision User Account
+                            </button>
+                        </form>
+
+                        <!-- Agents List -->
+                        <div class="space-y-2">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase font-mono">Company Agents & Users Active</h4>
+                            <div id="co-agents-list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <!-- Dynamically filled -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AGENT/USER WORKSPACE VIEW PANEL -->
+                    <div id="panel-agent" class="hidden bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-6">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">⚙️ Your Desktop Client Workspace</h3>
+                            
+                            <!-- Toggle learn/run mode -->
+                            <div class="flex items-center gap-2 bg-gray-900 p-1.5 rounded-lg border border-gray-800">
+                                <span class="text-xs font-mono font-semibold px-2 text-gray-400">Active Mode:</span>
+                                <button id="btn-mode-learn" onclick="toggleMode('learn')" class="text-xs font-bold px-3 py-1 rounded-md transition duration-150">
+                                    LEARN
+                                </button>
+                                <button id="btn-mode-run" onclick="toggleMode('run')" class="text-xs font-bold px-3 py-1 rounded-md transition duration-150">
+                                    RUN
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Data flow visualization -->
+                        <div class="bg-gray-900/30 border border-gray-800 p-4 rounded-xl flex items-center justify-center min-h-[140px]">
+                            <svg class="w-full max-w-md h-24" viewBox="0 0 400 100">
+                                <circle cx="50" cy="50" r="14" fill="#1e1b4b" stroke="#6366f1" stroke-width="2"/>
+                                <text x="50" y="54" fill="white" font-size="10" font-weight="bold" text-anchor="middle">💻</text>
+                                <text x="50" y="78" fill="#94a3b8" font-size="7" font-weight="bold" text-anchor="middle" font-mono>CLIENT</text>
+
+                                <circle cx="200" cy="50" r="14" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+                                <text x="200" y="54" fill="white" font-size="10" font-weight="bold" text-anchor="middle">🛡️</text>
+                                <text x="200" y="78" fill="#94a3b8" font-size="7" font-weight="bold" text-anchor="middle" font-mono>PII CLEAN</text>
+
+                                <circle cx="350" cy="50" r="14" fill="#022c22" stroke="#10b981" stroke-width="2"/>
+                                <text x="350" y="54" fill="white" font-size="10" font-weight="bold" text-anchor="middle">⚡</text>
+                                <text x="350" y="78" fill="#94a3b8" font-size="7" font-weight="bold" text-anchor="middle" font-mono>GCP LIVE</text>
+
+                                <line x1="66" y1="50" x2="184" y2="50" stroke="#4f46e5" stroke-width="1.5" class="flow-line"/>
+                                <line x1="216" y1="50" x2="334" y2="50" stroke="#0ea5e9" stroke-width="1.5" class="flow-line"/>
+
+                                <!-- Anim packet based on mode -->
+                                <circle id="svg-packet" cx="50" cy="50" r="3.5" fill="#818cf8">
+                                    <!-- Injected programmatically based on active mode -->
+                                </circle>
+                            </svg>
+                        </div>
+
+                        <!-- Tasks Queue (Active during RUN mode) -->
+                        <div class="space-y-4">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase font-mono">Autopilot Task Action Queue</h4>
+                            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <h5 id="task-title" class="text-sm font-bold text-white">No active tasks in queue</h5>
+                                        <p id="task-status" class="text-xs text-gray-500">Record custom flow in python client or create test below</p>
+                                    </div>
+                                    <button onclick="createDemoTask()" class="text-xs px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium transition">
+                                        ⚡ Generate Demo Task
+                                    </button>
+                                </div>
+                                <div id="task-steps-list" class="space-y-2 pt-2 border-t border-gray-800 hidden">
+                                    <!-- Steps list filled dynamically -->
+                                </div>
+                                <button id="btn-approve-task" disabled onclick="approveTask()" class="w-full py-2 bg-gray-800 text-gray-500 rounded-lg text-xs font-bold transition duration-150 cursor-not-allowed">
+                                    Authorize Autopilot Run (HITL Safety Approve)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chrome Extension Onboarding panel (Installable component) -->
+                    <div class="bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">🔌 Doppler Chrome Extension Login</h3>
+                            <span class="text-[10px] font-mono bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full font-bold">Extension Package ready</span>
+                        </div>
+                        <p class="text-xs text-gray-400 leading-relaxed">
+                            Doppler provides a lightweight Chrome Extension to monitor focus tabs and stream browser interactions. You can download the extension source files, unpack them in Developer Mode on Chrome, and use your credentials to login and toggle modes directly from your toolbar!
+                        </p>
+                        <div class="bg-gray-900 border border-gray-800 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
+                            <div class="space-y-1">
+                                <h4 class="text-xs font-bold text-white font-mono">Download doppler-extension.zip</h4>
+                                <p class="text-[10px] text-gray-500">Includes manifest.json, popup.html, popup.js, background.js</p>
+                            </div>
+                            <button onclick="window.location.href='/api/extension/download'" class="text-xs px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition duration-150">
+                                📦 Download Extension Pack
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Right Column: Live Telemetry stream / Learnt Feed -->
+                <div class="space-y-6">
+                    <!-- Real-time logs stream -->
+                    <div class="bg-gray-950 border border-gray-800 rounded-xl p-6 flex flex-col h-full">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">🔍 Telemetry Logs Feed (What was Learnt)</h3>
+                            <button onclick="refreshData()" class="text-xs text-gray-500 hover:text-white transition">🔄 Refresh</button>
+                        </div>
+                        
+                        <div id="logs-stream-container" class="space-y-3 overflow-y-auto max-h-[500px] pr-1">
+                            <!-- Telemetry rows dynamically added -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <footer class="border-t border-gray-800 bg-gray-950/40 py-6 text-center text-xs text-gray-500 font-mono mt-auto">
+        Doppler AI • Multi-Tenant Control plane • Proportional costing analytics active.
+    </footer>
+
+    <!-- JS LOGIC -->
+    <script>
+        let currentUser = null;
+        let activeTaskId = null;
+
+        // Login Handler
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById("login-username").value.strip ? document.getElementById("login-username").value.strip() : document.getElementById("login-username").value;
+            const password = document.getElementById("login-password").value;
+            
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                if (res.status === 200) {
+                    currentUser = await res.json();
+                    setupDashboardUI();
+                } else {
+                    const err = await res.json();
+                    alert("Error: " + err.detail);
+                }
+            } catch (err) {
+                console.error("Login failed:", err);
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            document.getElementById("dashboard-screen").classList.add("hidden");
+            document.getElementById("login-screen").classList.remove("hidden");
+        }
+
+        // Set up UI depending on Role
+        function setupDashboardUI() {
+            document.getElementById("login-screen").classList.add("hidden");
+            document.getElementById("dashboard-screen").classList.remove("hidden");
+            
+            // Set User identity
+            document.getElementById("user-role-badge").innerText = currentUser.role;
+            document.getElementById("user-company-text").innerText = "Logged in to " + currentUser.company_name;
+            
+            // Hide all sub panels
+            document.getElementById("panel-global-admin").classList.add("hidden");
+            document.getElementById("panel-co-admin").classList.add("hidden");
+            document.getElementById("panel-agent").classList.add("hidden");
+            
+            if (currentUser.role === "global_admin") {
+                document.getElementById("panel-global-admin").classList.remove("hidden");
+                loadCompanies();
+            } else if (currentUser.role === "co_admin") {
+                document.getElementById("panel-co-admin").classList.remove("hidden");
+                loadAgents();
+            } else if (currentUser.role === "agent") {
+                document.getElementById("panel-agent").classList.remove("hidden");
+                updateModeUI(currentUser.mode);
+                loadAgentTask();
+            }
+            
+            refreshData();
+        }
+
+        // Global Admin: Create Company
+        async function handleCreateCompany(e) {
+            e.preventDefault();
+            const name = document.getElementById("new-co-name").value;
+            const admin_username = document.getElementById("new-co-admin-user").value;
+            const admin_password = document.getElementById("new-co-admin-pass").value;
+            
+            try {
+                const res = await fetch('/api/companies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, admin_username, admin_password })
+                });
+                if (res.status === 200) {
+                    alert("Successfully created customer company & provisioned admin!");
+                    document.getElementById("new-co-name").value = "";
+                    document.getElementById("new-co-admin-user").value = "";
+                    document.getElementById("new-co-admin-pass").value = "";
+                    loadCompanies();
+                } else {
+                    const err = await res.json();
+                    alert("Error: " + err.detail);
+                }
+            } catch (err) {
+                console.error("Create company failed:", err);
+            }
+        }
+
+        async function loadCompanies() {
+            try {
+                const res = await fetch('/api/companies');
+                const cos = await res.json();
+                const list = document.getElementById("global-companies-list");
+                list.innerHTML = "";
+                
+                cos.forEach(co => {
+                    list.innerHTML += `
+                        <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-between text-xs">
+                            <div>
+                                <h5 class="font-bold text-white font-sans">${co.name}</h5>
+                                <p class="text-[10px] text-gray-500 font-mono mt-0.5">ID: ${co.id}</p>
+                            </div>
+                            <span class="text-[10px] bg-green-500/20 text-green-400 font-mono font-bold px-2 py-0.5 rounded-full">ACTIVE</span>
+                        </div>
+                    `;
+                });
+            } catch(e) {}
+        }
+
+        // Company Admin: Create Agent User
+        async function handleCreateAgent(e) {
+            e.preventDefault();
+            const username = document.getElementById("new-usr-username").value;
+            const password = document.getElementById("new-usr-password").value;
+            const role = document.getElementById("new-usr-role").value;
+            
+            try {
+                const res = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ company_id: currentUser.company_id, username, password, role })
+                });
+                if (res.status === 200) {
+                    alert(`Successfully created user: ${username}!`);
+                    document.getElementById("new-usr-username").value = "";
+                    document.getElementById("new-usr-password").value = "";
+                    loadAgents();
+                } else {
+                    const err = await res.json();
+                    alert("Error: " + err.detail);
+                }
+            } catch(e) {}
+        }
+
+        async function loadAgents() {
+            try {
+                const res = await fetch(`/api/users?company_id=${currentUser.company_id}`);
+                const agents = await res.json();
+                const list = document.getElementById("co-agents-list");
+                list.innerHTML = "";
+                
+                agents.forEach(agent => {
+                    list.innerHTML += `
+                        <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-between text-xs font-mono">
+                            <div>
+                                <h5 class="font-bold text-white">👤 ${agent.username}</h5>
+                                <p class="text-[10px] text-gray-500 mt-0.5">ID: ${agent.id}</p>
+                            </div>
+                            <span class="text-[10px] bg-purple-500/20 text-purple-400 font-bold px-2 py-0.5 rounded-full">${agent.mode.toUpperCase()} MODE</span>
+                        </div>
+                    `;
+                });
+            } catch(e) {}
+        }
+
+        // Agent: Toggle learn/run mode
+        async function toggleMode(mode) {
+            try {
+                const res = await fetch('/api/users/toggle-mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: currentUser.id, mode })
+                });
+                if (res.status === 200) {
+                    currentUser.mode = mode;
+                    updateModeUI(mode);
+                }
+            } catch (e) {}
+        }
+
+        function updateModeUI(mode) {
+            const btnLearn = document.getElementById("btn-mode-learn");
+            const btnRun = document.getElementById("btn-mode-run");
+            const packet = document.getElementById("svg-packet");
+            
+            if (mode === "learn") {
+                btnLearn.className = "text-xs font-bold px-3 py-1 rounded-md bg-indigo-600 text-white shadow";
+                btnRun.className = "text-xs font-bold px-3 py-1 rounded-md text-gray-400 hover:text-white";
+                
+                // Packets float from Client -> Server (Learn/Upload)
+                packet.innerHTML = `
+                    <animate attributeName="cx" values="50;350" dur="2s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="1;0" dur="2s" repeatCount="indefinite" />
+                `;
+            } else {
+                btnLearn.className = "text-xs font-bold px-3 py-1 rounded-md text-gray-400 hover:text-white";
+                btnRun.className = "text-xs font-bold px-3 py-1 rounded-md bg-purple-600 text-white shadow";
+                
+                // Packets pull from Server -> Client (Run/Execution)
+                packet.innerHTML = `
+                    <animate attributeName="cx" values="350;50" dur="2s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="1;0" dur="2s" repeatCount="indefinite" />
+                `;
+            }
+        }
+
+        // Agent: Task queue handlers
+        async function createDemoTask() {
+            const payload = {
+                user_id: currentUser.id,
+                persona_id: "persona_product_manager",
+                title: "Draft MAEngine Event Specs",
+                steps: [
+                    "Inspect core codebase magic-publisher",
+                    "Synthesize event trigger sequence",
+                    "Compile developer user stories",
+                    "Post specs in Markdown to Slack #C0BATMT8XJA"
+                ]
+            };
+            try {
+                const res = await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.status === 200) {
+                    const data = await res.json();
+                    activeTaskId = data.task_id;
+                    loadAgentTask();
+                }
+            } catch (e) {}
+        }
+
+        async function loadAgentTask() {
+            try {
+                const res = await fetch(`/api/tasks?user_id=${currentUser.id}`);
+                const tasks = await res.json();
+                if (tasks.length === 0) return;
+                
+                const task = tasks[0];
+                activeTaskId = task.id;
+                
+                document.getElementById("task-title").innerText = task.title;
+                const statusEl = document.getElementById("task-status");
+                
+                const list = document.getElementById("task-steps-list");
+                list.innerHTML = "";
+                list.classList.remove("hidden");
+                
+                task.steps.forEach((step, idx) => {
+                    list.innerHTML += `
+                        <div class="flex items-center gap-2 text-xs font-mono text-gray-400">
+                            <span class="text-indigo-400 font-bold">[Step ${idx+1}]</span>
+                            <span>${step}</span>
+                        </div>
+                    `;
+                });
+                
+                const btnApprove = document.getElementById("btn-approve-task");
+                
+                if (task.status === "pending") {
+                    statusEl.innerHTML = "Status: <span class='text-yellow-400 font-bold'>PENDING</span> (Awaiting human approval)";
+                    btnApprove.disabled = false;
+                    btnApprove.className = "w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition duration-150 cursor-pointer";
+                } else if (task.status === "approved") {
+                    statusEl.innerHTML = "Status: <span class='text-green-400 font-bold'>APPROVED</span> (Waiting for desktop run)";
+                    btnApprove.disabled = true;
+                    btnApprove.className = "w-full py-2 bg-gray-800 text-gray-500 rounded-lg text-xs font-bold transition duration-150 cursor-not-allowed";
+                } else {
+                    statusEl.innerHTML = "Status: <span class='text-blue-400 font-bold'>COMPLETED</span>";
+                    btnApprove.disabled = true;
+                    btnApprove.className = "w-full py-2 bg-gray-800 text-gray-500 rounded-lg text-xs font-bold transition duration-150 cursor-not-allowed";
+                }
+            } catch (e) {}
+        }
+
+        async function approveTask() {
+            if (!activeTaskId) return;
+            try {
+                const res = await fetch(`/api/tasks/${activeTaskId}/approve`, { method: 'POST' });
+                if (res.status === 200) {
+                    loadAgentTask();
+                }
+            } catch (e) {}
+        }
+
+        // Global polling & Refresh loop
+        async function refreshData() {
+            if (!currentUser) return;
+            
+            // Query Metrics
+            let metricsUrl = '/api/metrics';
+            if (currentUser.role === 'co_admin') {
+                metricsUrl += `?company_id=${currentUser.company_id}`;
+            } else if (currentUser.role === 'agent') {
+                metricsUrl += `?company_id=${currentUser.company_id}&user_id=${currentUser.id}`;
+            }
+            
+            try {
+                const res = await fetch(metricsUrl);
+                const metrics = await res.json();
+                
+                // Set Cost details
+                document.getElementById("cost-global").innerText = "$" + metrics.global.estimated_cost_usd.toFixed(6);
+                document.getElementById("cost-company").innerText = "$" + metrics.company.estimated_cost_usd.toFixed(6);
+                document.getElementById("cost-user").innerText = "$" + metrics.user.estimated_cost_usd.toFixed(6);
+            } catch(e) {}
+            
+            // Query Telemetry List
+            let telUrl = '/api/telemetry';
+            if (currentUser.role === 'co_admin') {
+                telUrl += `?company_id=${currentUser.company_id}`;
+            } else if (currentUser.role === 'agent') {
+                telUrl += `?user_id=${currentUser.id}`;
+            }
+            
+            try {
+                const res = await fetch(telUrl);
+                const logs = await res.json();
+                
+                const container = document.getElementById("logs-stream-container");
+                container.innerHTML = "";
+                
+                if (logs.length === 0) {
+                    container.innerHTML = `<div class="text-xs text-gray-500 italic text-center py-10">No telemetry logs streaming. Run observe command on client.</div>`;
+                    return;
+                }
+                
+                logs.forEach(log => {
+                    const date = new Date(log.timestamp).toLocaleTimeString();
+                    container.innerHTML += `
+                        <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex flex-col hover:border-gray-700 transition">
+                            <div class="flex items-center justify-between text-[10px] font-mono mb-1.5">
+                                <span class="text-indigo-400 font-bold">${log.username || log.user_id}</span>
+                                <span class="text-gray-500">${date}</span>
+                            </div>
+                            <div class="text-xs font-semibold text-white flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                                Focused: <span class="font-mono text-indigo-300">${log.window_title}</span>
+                            </div>
+                            <div class="text-[10px] text-gray-400 mt-1 flex gap-3 font-mono">
+                                <span>🎹 Keys: <strong class="text-white">${log.keystrokes}</strong></span>
+                                <span>🖱️ Clicks: <strong class="text-white">${log.mouse_clicks}</strong></span>
+                                <span>💬 Slack: <strong class="text-white">${log.slack_status}</strong></span>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch(e) {}
+        }
+
+        // Start handshakes
+        setInterval(refreshData, 5000);
+    </script>
+</body>
+</html>
