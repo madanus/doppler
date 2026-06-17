@@ -17,7 +17,7 @@ app = FastAPI(
 # -------------------------------------------------------------------------
 # DATABASE CONFIGURATION & STABLE SCHEMA
 # -------------------------------------------------------------------------
-DB_FILE = "/tmp/doppler.db" if os.environ.get("GAE_ENV") or os.environ.get("K_SERVICE") else "doppler.db"
+DB_FILE = os.environ.get("DOPPLER_DB_PATH") or ("/tmp/doppler.db" if os.environ.get("GAE_ENV") or os.environ.get("K_SERVICE") else "doppler.db")
 
 # Force recreate DB on startup to ensure a completely clean, pristine, stable RBAC migration.
 if os.path.exists(DB_FILE) and not os.environ.get("GAE_ENV") and not os.environ.get("K_SERVICE"):
@@ -28,7 +28,7 @@ if os.path.exists(DB_FILE) and not os.environ.get("GAE_ENV") and not os.environ.
         print(f"Failed to remove legacy DB: {e}")
 
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
