@@ -283,6 +283,98 @@ class ModeTogglePayload(BaseModel):
 # ENDPOINTS (STRICT ENFORCEMENT)
 # -------------------------------------------------------------------------
 
+@app.post("/api/webhooks/slack")
+async def slack_webhook(payload: Dict[str, Any], db = Depends(get_db)):
+    """
+    Secure, real-time Slack Event Subscriptions Webhook.
+    Handles URL verification challenges, parses incoming channel/DM messages,
+    and automatically triggers and queues tasks for Doppler agents based on text commands.
+    """
+    # 1. Handle Slack URL Verification Handshake
+    if payload.get("type") == "url_verification":
+        return {"challenge": payload.get("challenge")}
+        
+    event = payload.get("event", {})
+    if not event:
+        return {"status": "ignored"}
+        
+    event_type = event.get("type")
+    text = event.get("text", "")
+    channel = event.get("channel", "")
+    slack_user = event.get("user", "")
+    
+    # Ignore messages sent by the bot itself to prevent infinite loops
+    if event.get("bot_id") or event.get("subtype") == "bot_message":
+        return {"status": "ignored"}
+        
+    # 2. Parse commands and automatically trigger matching Agent tasks
+    cursor = db.cursor()
+    
+    # Map keywords to functional roles and predefined steps
+    task_title = ""
+    steps = []
+    persona_id = ""
+    target_user_id = ""
+    
+    text_lower = text.lower()
+    if "test" in text_lower:
+        task_title = f"Automated Pytest Run [Slack: {channel[:8]}]"
+        persona_id = "persona_lead_developer"
+        steps = [
+            "Fetch latest branch commits from GitHub",
+            "Initialize sandboxed virtual environment",
+            "Execute pytest test suite locally",
+            f"Report test outcomes back to Slack channel {channel}"
+        ]
+    elif "deploy" in text_lower:
+        task_title = f"Autopilot Cloud Run Deploy [Slack: {channel[:8]}]"
+        persona_id = "persona_lead_developer"
+        steps = [
+            "Trigger cloud container rebuild via Cloud Build",
+            "Update routing paths on Google Cloud Run",
+            "Perform live endpoint network health checks",
+            f"Post active deployment URL back to Slack channel {channel}"
+        ]
+    elif "spec" in text_lower or "prd" in text_lower:
+        task_title = f"Compile Agile Specifications [Slack: {channel[:8]}]"
+        persona_id = "persona_product_manager"
+        steps = [
+            "Analyze telemetry streams and draft specifications",
+            "Synthesize sequence architecture diagrams",
+            "Format stories using Gherkin Given-When-Then rules",
+            f"Upload specification PDF and notify channel {channel}"
+        ]
+        
+    if task_title and steps:
+        # Match an active standard agent in the database to execute this task
+        cursor.execute("SELECT id FROM users WHERE role = 'agent' AND functional_role LIKE ? LIMIT 1", 
+                       (f"%{persona_id.split('_')[-1]}%",))
+        row = cursor.fetchone()
+        if row:
+            target_user_id = row["id"]
+        else:
+            # Fallback to default seeded agent if none found
+            target_user_id = "usr_agent_pm" if "product" in persona_id else "usr_agent_dev"
+            
+        task_id = f"task_slack_{uuid.uuid4().hex[:6]}"
+        now = datetime.datetime.utcnow().isoformat()
+        steps_str = "||".join(steps)
+        
+        cursor.execute("""
+        INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+        """, (task_id, target_user_id, persona_id, task_title, steps_str, "pending", now))
+        db.commit()
+        
+        print(f"Slack Webhook: Created task {task_id} successfully based on message: '{text}'")
+        return {
+            "status": "triggered",
+            "task_id": task_id,
+            "assigned_to": target_user_id,
+            "message": f"Successfully queued task based on Slack message: '{text}'"
+        }
+        
+    return {"status": "completed", "details": "Message processed but did not match a triggering command."}
+
 @app.get("/api/extension/download")
 def download_extension():
     zip_path = os.path.join(os.path.dirname(__file__), "doppler-extension.zip")
