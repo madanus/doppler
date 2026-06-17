@@ -180,11 +180,14 @@
                                 </select>
                                 
                                 <!-- Professional/Functional Role -->
-                                <select id="new-agent-functional-role" class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <select id="new-agent-functional-role" onchange="toggleCustomRoleInput(this.value)" class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
                                     <option value="Product Manager">Product Manager</option>
                                     <option value="Lead Developer">Lead Developer</option>
                                     <option value="Digital Marketer">Digital Marketer</option>
+                                    <option value="custom">-- Custom Role --</option>
                                 </select>
+                                
+                                <input type="text" id="new-agent-custom-role-input" class="hidden bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans" placeholder="Type Custom Role Name...">
                             </div>
                             <button type="submit" class="text-xs px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-semibold transition">
                                 Provision User Account
@@ -454,6 +457,19 @@
             } catch(e) {}
         }
 
+        function toggleCustomRoleInput(val) {
+            const customInput = document.getElementById("new-agent-custom-role-input");
+            if (val === "custom") {
+                customInput.classList.remove("hidden");
+                customInput.required = true;
+                customInput.focus();
+            } else {
+                customInput.classList.add("hidden");
+                customInput.required = false;
+                customInput.value = "";
+            }
+        }
+
         // Global Admin Exclusive: Create Agent User under Selected Company (With Functional Role Support)
         async function handleCreateAgentGlobal(e) {
             e.preventDefault();
@@ -461,7 +477,8 @@
             const username = document.getElementById("new-agent-username").value;
             const password = document.getElementById("new-agent-password").value;
             const role = document.getElementById("new-agent-role").value;
-            const functional_role = document.getElementById("new-agent-functional-role").value;
+            const selected_role = document.getElementById("new-agent-functional-role").value;
+            const functional_role = (selected_role === "custom") ? document.getElementById("new-agent-custom-role-input").value.trim() : selected_role;
             
             if (!company_id) {
                 alert("Please select a target customer company.");
@@ -479,6 +496,8 @@
                     document.getElementById("new-agent-username").value = "";
                     document.getElementById("new-agent-password").value = "";
                     document.getElementById("new-agent-co-select").value = "";
+                    document.getElementById("new-agent-functional-role").value = "Product Manager";
+                    toggleCustomRoleInput("");
                 } else {
                     const err = await res.json();
                     alert("Error: " + err.detail);
