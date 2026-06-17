@@ -10,7 +10,7 @@ import sqlite3
 app = FastAPI(
     title="Doppler AI Control Plane",
     description="Multi-tenant serverless control plane for Doppler on-desktop self-learning agents",
-    version="2.1.0"
+    version="2.2.0"
 )
 
 # -------------------------------------------------------------------------
@@ -18,12 +18,11 @@ app = FastAPI(
 # -------------------------------------------------------------------------
 DB_FILE = "/tmp/doppler.db" if os.environ.get("GAE_ENV") or os.environ.get("K_SERVICE") else "doppler.db"
 
-# Force recreate DB on startup once to cleanly apply the new UNIQUE(company_id, username) constraint
-# and avoid SQLite constraint conflict errors on legacy databases.
+# Force recreate DB on startup once to cleanly apply the new functional_role column schema
 if os.path.exists(DB_FILE) and not os.environ.get("GAE_ENV") and not os.environ.get("K_SERVICE"):
     try:
         os.remove(DB_FILE)
-        print("Legacy local SQLite DB removed for schema migration.")
+        print("Legacy local SQLite DB removed for functional_role schema migration.")
     except Exception as e:
         print(f"Failed to remove legacy DB: {e}")
 
@@ -48,7 +47,7 @@ def init_db():
     )
     """)
     
-    # 2. Users Table (Now with scoped composite UNIQUE on company_id + username)
+    # 2. Users Table (Now with functional_role column)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -56,6 +55,7 @@ def init_db():
         username TEXT,
         password TEXT,
         role TEXT, -- 'global_admin', 'co_admin', 'agent'
+        functional_role TEXT, -- 'Product Manager', 'Lead Developer', 'Digital Marketer', etc.
         mode TEXT, -- 'learn', 'run'
         created_at TEXT,
         FOREIGN KEY(company_id) REFERENCES companies(id),
@@ -122,29 +122,29 @@ def init_db():
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (co_touchtap, "TouchTap Technologies", now))
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (co_madalgos, "MadAlgos AI Corp", now))
         
-        # Seed Users
+        # Seed Users (Including functional_role values)
         # Global Admin
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            "usr_global_admin", co_global, "admin", "admin123", "global_admin", "learn", now
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            "usr_global_admin", co_global, "admin", "admin123", "global_admin", "Global Administrator", "learn", now
         ))
         # TouchTap Admin
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            "usr_touchtap_admin", co_touchtap, "touchtap_admin", "admin123", "co_admin", "learn", now
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            "usr_touchtap_admin", co_touchtap, "touchtap_admin", "admin123", "co_admin", "Company Administrator", "learn", now
         ))
         # MadAlgos Admin
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            "usr_madalgos_admin", co_madalgos, "madalgos_admin", "admin123", "co_admin", "learn", now
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            "usr_madalgos_admin", co_madalgos, "madalgos_admin", "admin123", "co_admin", "Company Administrator", "learn", now
         ))
         # Agent Users (TouchTap)
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            "usr_agent_pm", co_touchtap, "agent_pm", "user123", "agent", "learn", now
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            "usr_agent_pm", co_touchtap, "agent_pm", "user123", "agent", "Product Manager", "learn", now
         ))
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            "usr_agent_dev", co_touchtap, "agent_dev", "user123", "agent", "run", now
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            "usr_agent_dev", co_touchtap, "agent_dev", "user123", "agent", "Lead Developer", "run", now
         ))
         # Agent Users (MadAlgos)
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            "usr_agent_marketer", co_madalgos, "agent_mkt", "user123", "agent", "learn", now
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            "usr_agent_marketer", co_madalgos, "agent_mkt", "user123", "agent", "Digital Marketer", "learn", now
         ))
         
         # Seed default pre-defined personas if empty
@@ -172,7 +172,7 @@ def init_db():
                 0, now
             ))
             
-        # Seed initial dummy telemetry logs
+        # Seed initial telemetry logs
         cursor.execute("INSERT INTO telemetry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (
             "tel_1", now, "usr_agent_pm", "Slack - #C0BATMT8XJA (Specs Channel)", "Active", 45, 12, "OCR: Text field focus 'Specs Input'", "{}"
         ))
@@ -224,6 +224,7 @@ class UserCreatePayload(BaseModel):
     username: str
     password: str
     role: str # 'co_admin' or 'agent'
+    functional_role: Optional[str] = "Product Manager"
 
 class ModeTogglePayload(BaseModel):
     user_id: str
@@ -291,9 +292,9 @@ def create_company(payload: CompanyCreatePayload, db = Depends(get_db)):
     try:
         # Create company
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (company_id, payload.name, now))
-        # Create company admin (username unique within this company_id)
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            admin_user_id, company_id, payload.admin_username, payload.admin_password, "co_admin", "learn", now
+        # Create company admin (username unique within this company_id) with Company Administrator functional_role
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            admin_user_id, company_id, payload.admin_username, payload.admin_password, "co_admin", "Company Administrator", "learn", now
         ))
         db.commit()
     except Exception as e:
@@ -308,7 +309,7 @@ def list_companies(db = Depends(get_db)):
     cursor.execute("SELECT * FROM companies")
     return [dict(row) for row in cursor.fetchall()]
 
-# Multi-tenant Creation: Add Agent User
+# Multi-tenant Creation: Add Agent User (With functional_role support)
 @app.post("/api/users")
 def create_user(payload: UserCreatePayload, db = Depends(get_db)):
     cursor = db.cursor()
@@ -320,8 +321,9 @@ def create_user(payload: UserCreatePayload, db = Depends(get_db)):
     user_id = f"usr_{uuid.uuid4().hex[:8]}"
     now = datetime.datetime.utcnow().isoformat()
     
-    cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-        user_id, payload.company_id, payload.username, payload.password, payload.role, "learn", now
+    # Save with both permission role and professional/functional role!
+    cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+        user_id, payload.company_id, payload.username, payload.password, payload.role, payload.functional_role, "learn", now
     ))
     db.commit()
     return {"status": "success", "user_id": user_id}
@@ -436,8 +438,8 @@ def ingest_telemetry(payload: TelemetryPayload, db = Depends(get_db)):
     cursor.execute("SELECT id FROM users WHERE id = ?", (payload.user_id,))
     if not cursor.fetchone():
         # Fallback to create user if does not exist to retain legacy tests support
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            payload.user_id, "co_touchtap_tech", f"usr_{payload.user_id[:8]}", "pass123", "agent", "learn", now
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            payload.user_id, "co_touchtap_tech", f"usr_{payload.user_id[:8]}", "pass123", "agent", "Product Manager", "learn", now
         ))
         
     cursor.execute("""
@@ -453,7 +455,7 @@ def ingest_telemetry(payload: TelemetryPayload, db = Depends(get_db)):
 def get_telemetry(company_id: Optional[str] = None, user_id: Optional[str] = None, limit: int = 50, db = Depends(get_db)):
     cursor = db.cursor()
     query = """
-    SELECT telemetry.*, users.username 
+    SELECT telemetry.*, users.username, users.functional_role 
     FROM telemetry 
     JOIN users ON telemetry.user_id = users.id
     """
@@ -488,7 +490,7 @@ def get_personas(db = Depends(get_db)):
 def get_tasks(company_id: Optional[str] = None, user_id: Optional[str] = None, status: Optional[str] = None, db = Depends(get_db)):
     cursor = db.cursor()
     query = """
-    SELECT tasks.*, users.username 
+    SELECT tasks.*, users.username, users.functional_role 
     FROM tasks 
     JOIN users ON tasks.user_id = users.id
     """
@@ -532,8 +534,8 @@ def create_task(payload: TaskCreatePayload, db = Depends(get_db)):
     # Ensure user exists
     cursor.execute("SELECT id FROM users WHERE id = ?", (payload.user_id,))
     if not cursor.fetchone():
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            payload.user_id, "co_touchtap_tech", f"usr_{payload.user_id[:8]}", "pass123", "agent", "learn", now
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            payload.user_id, "co_touchtap_tech", f"usr_{payload.user_id[:8]}", "pass123", "agent", "Product Manager", "learn", now
         ))
         
     cursor.execute("""

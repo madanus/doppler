@@ -166,16 +166,24 @@
                         <!-- Create Agent Form (GLOBAL ADMIN EXCLUSIVE POWER) -->
                         <form onsubmit="handleCreateAgentGlobal(event)" class="bg-gray-900/40 border border-gray-800 p-4 rounded-xl space-y-4">
                             <h4 class="text-xs font-bold text-white uppercase font-mono">➕ Provision New Agent under Customer Company</h4>
-                            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
                                 <select id="new-agent-co-select" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
                                     <option value="">Select Company...</option>
-                                    <!-- Companies list dynamically populated -->
                                 </select>
-                                <input type="text" id="new-agent-username" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Username (e.g. agent_mkt)">
+                                <input type="text" id="new-agent-username" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Username">
                                 <input type="password" id="new-agent-password" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Password">
+                                
+                                <!-- Permission Role -->
                                 <select id="new-agent-role" class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
                                     <option value="agent">Standard Agent</option>
                                     <option value="co_admin">Co-level Admin</option>
+                                </select>
+                                
+                                <!-- Professional/Functional Role -->
+                                <select id="new-agent-functional-role" class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <option value="Product Manager">Product Manager</option>
+                                    <option value="Lead Developer">Lead Developer</option>
+                                    <option value="Digital Marketer">Digital Marketer</option>
                                 </select>
                             </div>
                             <button type="submit" class="text-xs px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-semibold transition">
@@ -366,7 +374,7 @@
             document.getElementById("dashboard-screen").classList.remove("hidden");
             
             // Set User identity
-            document.getElementById("user-role-badge").innerText = currentUser.role;
+            document.getElementById("user-role-badge").innerText = currentUser.functional_role || currentUser.role;
             document.getElementById("user-company-text").innerText = "Logged in to " + currentUser.company_name;
             
             // Hide all sub panels
@@ -429,16 +437,15 @@
                 dropdown.innerHTML = `<option value="">Select Company...</option>`;
                 
                 cachedCompanies.forEach(co => {
-                    // Do not list operational root company in customer list
                     if (co.id === "co_global_admin") return;
                     
                     list.innerHTML += `
-                        <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-between text-xs">
+                        <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-between text-xs font-mono">
                             <div>
                                 <h5 class="font-bold text-white font-sans">${co.name}</h5>
-                                <p class="text-[10px] text-gray-500 font-mono mt-0.5">ID: ${co.id}</p>
+                                <p class="text-[10px] text-gray-500 mt-0.5">ID: ${co.id}</p>
                             </div>
-                            <span class="text-[10px] bg-green-500/20 text-green-400 font-mono font-bold px-2 py-0.5 rounded-full">ACTIVE</span>
+                            <span class="text-[10px] bg-green-500/20 text-green-400 font-bold px-2 py-0.5 rounded-full">ACTIVE</span>
                         </div>
                     `;
                     
@@ -447,13 +454,14 @@
             } catch(e) {}
         }
 
-        // Global Admin Exclusive: Create Agent User under Selected Company
+        // Global Admin Exclusive: Create Agent User under Selected Company (With Functional Role Support)
         async function handleCreateAgentGlobal(e) {
             e.preventDefault();
             const company_id = document.getElementById("new-agent-co-select").value;
             const username = document.getElementById("new-agent-username").value;
             const password = document.getElementById("new-agent-password").value;
             const role = document.getElementById("new-agent-role").value;
+            const functional_role = document.getElementById("new-agent-functional-role").value;
             
             if (!company_id) {
                 alert("Please select a target customer company.");
@@ -464,10 +472,10 @@
                 const res = await fetch('/api/users', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ company_id, username, password, role })
+                    body: JSON.stringify({ company_id, username, password, role, functional_role })
                 });
                 if (res.status === 200) {
-                    alert(`Successfully created agent user: ${username} under selected company!`);
+                    alert(`Successfully provisioned ${functional_role} Agent: ${username}!`);
                     document.getElementById("new-agent-username").value = "";
                     document.getElementById("new-agent-password").value = "";
                     document.getElementById("new-agent-co-select").value = "";
@@ -491,7 +499,7 @@
                         <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-between text-xs font-mono">
                             <div>
                                 <h5 class="font-bold text-white">👤 ${agent.username}</h5>
-                                <p class="text-[10px] text-gray-500 mt-0.5">Role: ${agent.role.toUpperCase()}</p>
+                                <p class="text-[10px] text-gray-500 mt-0.5">Role: ${agent.functional_role || agent.role.toUpperCase()}</p>
                             </div>
                             <span class="text-[10px] bg-purple-500/20 text-purple-400 font-bold px-2 py-0.5 rounded-full">${agent.mode.toUpperCase()} MODE</span>
                         </div>
@@ -664,16 +672,16 @@
                 logs.forEach(log => {
                     const date = new Date(log.timestamp).toLocaleTimeString();
                     container.innerHTML += `
-                        <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex flex-col hover:border-gray-700 transition">
-                            <div class="flex items-center justify-between text-[10px] font-mono mb-1.5">
-                                <span class="text-indigo-400 font-bold">${log.username || log.user_id}</span>
+                        <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex flex-col hover:border-gray-700 transition font-mono">
+                            <div class="flex items-center justify-between text-[10px] mb-1.5">
+                                <span class="text-indigo-400 font-bold">${log.username || log.user_id} (${log.functional_role || 'Agent'})</span>
                                 <span class="text-gray-500">${date}</span>
                             </div>
-                            <div class="text-xs font-semibold text-white flex items-center gap-1">
+                            <div class="text-xs font-semibold text-white flex items-center gap-1 font-sans">
                                 <span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
                                 Focused: <span class="font-mono text-indigo-300">${log.window_title}</span>
                             </div>
-                            <div class="text-[10px] text-gray-400 mt-1 flex gap-3 font-mono">
+                            <div class="text-[10px] text-gray-400 mt-1 flex gap-3">
                                 <span>🎹 Keys: <strong class="text-white">${log.keystrokes}</strong></span>
                                 <span>🖱️ Clicks: <strong class="text-white">${log.mouse_clicks}</strong></span>
                                 <span>💬 Slack: <strong class="text-white">${log.slack_status}</strong></span>
