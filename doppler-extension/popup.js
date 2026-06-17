@@ -125,11 +125,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   function updateModeUI(mode) {
     if (mode === "learn") {
-      toggleLearn.className = "text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-600 text-white shadow";
-      toggleRun.className = "text-[10px] font-bold px-2 py-0.5 rounded text-gray-400 hover:text-white";
+      toggleLearn.className = "toggle-btn active-learn";
+      toggleRun.className = "toggle-btn";
     } else {
-      toggleLearn.className = "text-[10px] font-bold px-2 py-0.5 rounded text-gray-400 hover:text-white";
-      toggleRun.className = "text-[10px] font-bold px-2 py-0.5 rounded bg-purple-600 text-white shadow";
+      toggleLearn.className = "toggle-btn";
+      toggleRun.className = "toggle-btn active-run";
     }
   }
 });
