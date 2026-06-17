@@ -330,14 +330,26 @@
                 <!-- Right Column: Live Telemetry stream / Learnt Feed -->
                 <div class="space-y-6">
                     <!-- Real-time logs stream -->
-                    <div class="bg-gray-950 border border-gray-800 rounded-xl p-6 flex flex-col h-full">
+                    <div class="bg-gray-950 border border-gray-800 rounded-xl p-6 flex flex-col">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">🔍 Telemetry Logs Feed (What was Learnt)</h3>
+                            <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">🔍 Telemetry Logs Feed</h3>
                             <button onclick="refreshData()" class="text-xs text-gray-500 hover:text-white transition">🔄 Refresh</button>
                         </div>
                         
-                        <div id="logs-stream-container" class="space-y-3 overflow-y-auto max-h-[500px] pr-1">
+                        <div id="logs-stream-container" class="space-y-3 overflow-y-auto max-h-[300px] pr-1">
                             <!-- Telemetry rows dynamically added -->
+                        </div>
+                    </div>
+
+                    <!-- Learnt Rules Board -->
+                    <div class="bg-gray-950 border border-gray-800 rounded-xl p-6 flex flex-col">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-pink-400">🧠 Doppler Learnt Rules Board</h3>
+                            <span class="text-[10px] font-mono bg-pink-500/20 text-pink-400 px-2 py-0.5 rounded-full font-bold">Active Memory</span>
+                        </div>
+                        
+                        <div id="learnt-rules-list" class="space-y-3 overflow-y-auto max-h-[220px] pr-1 font-mono text-xs">
+                            <!-- Learnt rules injected dynamically -->
                         </div>
                     </div>
                 </div>
@@ -821,29 +833,55 @@
                 
                 if (logs.length === 0) {
                     container.innerHTML = `<div class="text-xs text-gray-500 italic text-center py-10">No telemetry logs streaming. Run observe command on client.</div>`;
-                    return;
+                } else {
+                    logs.forEach(log => {
+                        const date = new Date(log.timestamp).toLocaleTimeString();
+                        container.innerHTML += `
+                            <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex flex-col hover:border-gray-700 transition font-mono">
+                                <div class="flex items-center justify-between text-[10px] mb-1.5">
+                                    <span class="text-indigo-400 font-bold">${log.username || log.user_id} (${log.functional_role || 'Agent'})</span>
+                                    <span class="text-gray-500">${date}</span>
+                                </div>
+                                <div class="text-xs font-semibold text-white flex items-center gap-1 font-sans">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                                    Focused: <span class="font-mono text-indigo-300">${log.window_title}</span>
+                                </div>
+                                <div class="text-[10px] text-gray-400 mt-1 flex gap-3">
+                                    <span>🎹 Keys: <strong class="text-white">${log.keystrokes}</strong></span>
+                                    <span>🖱️ Clicks: <strong class="text-white">${log.mouse_clicks}</strong></span>
+                                    <span>💬 Slack: <strong class="text-white">${log.slack_status}</strong></span>
+                                </div>
+                            </div>
+                        `;
+                    });
                 }
+            } catch(e) {}
+
+            // Query Learnt Rules
+            try {
+                const res = await secureFetch('/api/learning/rules');
+                const rules = await res.json();
+                const list = document.getElementById("learnt-rules-list");
+                list.innerHTML = "";
                 
-                logs.forEach(log => {
-                    const date = new Date(log.timestamp).toLocaleTimeString();
-                    container.innerHTML += `
-                        <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex flex-col hover:border-gray-700 transition font-mono">
-                            <div class="flex items-center justify-between text-[10px] mb-1.5">
-                                <span class="text-indigo-400 font-bold">${log.username || log.user_id} (${log.functional_role || 'Agent'})</span>
-                                <span class="text-gray-500">${date}</span>
+                if (rules.length === 0) {
+                    list.innerHTML = `<div class="text-[10px] text-gray-500 italic text-center py-6">No custom patterns learned yet. Ingest Slack messages to train.</div>`;
+                } else {
+                    rules.forEach(rule => {
+                        list.innerHTML += `
+                            <div class="p-2.5 bg-gray-900/60 border border-gray-800 rounded-lg space-y-1">
+                                <div class="text-[10px] text-pink-400 font-bold flex items-center gap-1">
+                                    <span>📥 Trigger Match:</span>
+                                    <span class="text-white bg-pink-500/20 px-1.5 py-0.5 rounded font-mono">"${rule.trigger_text}"</span>
+                                </div>
+                                <div class="text-[10px] text-gray-400 flex items-start gap-1 leading-normal">
+                                    <span class="font-bold text-green-400 shrink-0">📤 Autopilot Response:</span>
+                                    <span>"${rule.reply_text}"</span>
+                                </div>
                             </div>
-                            <div class="text-xs font-semibold text-white flex items-center gap-1 font-sans">
-                                <span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                                Focused: <span class="font-mono text-indigo-300">${log.window_title}</span>
-                            </div>
-                            <div class="text-[10px] text-gray-400 mt-1 flex gap-3">
-                                <span>🎹 Keys: <strong class="text-white">${log.keystrokes}</strong></span>
-                                <span>🖱️ Clicks: <strong class="text-white">${log.mouse_clicks}</strong></span>
-                                <span>💬 Slack: <strong class="text-white">${log.slack_status}</strong></span>
-                            </div>
-                        </div>
-                    `;
-                });
+                        `;
+                    });
+                }
             } catch(e) {}
         }
 

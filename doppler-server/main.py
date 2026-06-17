@@ -11,7 +11,7 @@ import hashlib
 app = FastAPI(
     title="Doppler AI Control Plane",
     description="Production-grade, highly stable Multi-tenant RBAC serverless control plane for Doppler on-desktop self-learning agents",
-    version="3.0.0"
+    version="3.1.0"
 )
 
 # -------------------------------------------------------------------------
@@ -123,6 +123,18 @@ def init_db():
     )
     """)
     
+    # 7. Learnt Rules Table (New! Closes the loop of Learn Mode -> Automatic Run Mode actions!)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS learnt_rules (
+        id TEXT PRIMARY KEY,
+        company_id TEXT,
+        trigger_text TEXT,
+        reply_text TEXT,
+        created_at TEXT,
+        FOREIGN KEY(company_id) REFERENCES companies(id)
+    )
+    """)
+    
     # Seed default data
     cursor.execute("SELECT COUNT(*) FROM companies")
     if cursor.fetchone()[0] == 0:
@@ -148,7 +160,7 @@ def init_db():
         ))
         # MadAlgos Admin
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-            "usr_madalgos_admin", co_madalgos, "madalgos_admin", hash_password("admin123"), "co_admin", "Company Administrator", "learn", now
+            "usr_madalgos_admin", co_madalgos, "madalgos_admin", "admin123", "co_admin", "Company Administrator", "learn", now
         ))
         # Agent Users (TouchTap)
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
@@ -193,6 +205,11 @@ def init_db():
             "tel_2", now, "usr_agent_dev", "Cursor - magic-publisher/main.py", "In a Meeting", 120, 5, "OCR: Editor file 'main.py'", "{}"
         ))
         
+        # Seed initial learned rules
+        cursor.execute("INSERT INTO learnt_rules VALUES (?, ?, ?, ?, ?)", (
+            "rule_1", co_touchtap, "hi", "Hello there! Doppler shadow PM is ready to compile specifications.", now
+        ))
+        
     conn.commit()
     conn.close()
 
@@ -207,8 +224,6 @@ def get_current_user(x_doppler_token: Optional[str] = Header(None), db = Depends
     resolves the active user role, and returns user identity securely.
     """
     if not x_doppler_token:
-        # Fallback to allow CLI client execution if a legacy query param is passed
-        # (Allows testing python clients easily, but locks dashboard APIs)
         raise HTTPException(status_code=401, detail="X-Doppler-Token authentication header is required.")
         
     cursor = db.cursor()
@@ -279,101 +294,14 @@ class ModeTogglePayload(BaseModel):
     user_id: str
     mode: str # 'learn' or 'run'
 
+class LearntRulePayload(BaseModel):
+    company_id: str
+    trigger_text: str
+    reply_text: str
+
 # -------------------------------------------------------------------------
 # ENDPOINTS (STRICT ENFORCEMENT)
 # -------------------------------------------------------------------------
-
-@app.post("/api/webhooks/slack")
-async def slack_webhook(payload: Dict[str, Any], db = Depends(get_db)):
-    """
-    Secure, real-time Slack Event Subscriptions Webhook.
-    Handles URL verification challenges, parses incoming channel/DM messages,
-    and automatically triggers and queues tasks for Doppler agents based on text commands.
-    """
-    # 1. Handle Slack URL Verification Handshake
-    if payload.get("type") == "url_verification":
-        return {"challenge": payload.get("challenge")}
-        
-    event = payload.get("event", {})
-    if not event:
-        return {"status": "ignored"}
-        
-    event_type = event.get("type")
-    text = event.get("text", "")
-    channel = event.get("channel", "")
-    slack_user = event.get("user", "")
-    
-    # Ignore messages sent by the bot itself to prevent infinite loops
-    if event.get("bot_id") or event.get("subtype") == "bot_message":
-        return {"status": "ignored"}
-        
-    # 2. Parse commands and automatically trigger matching Agent tasks
-    cursor = db.cursor()
-    
-    # Map keywords to functional roles and predefined steps
-    task_title = ""
-    steps = []
-    persona_id = ""
-    target_user_id = ""
-    
-    text_lower = text.lower()
-    if "test" in text_lower:
-        task_title = f"Automated Pytest Run [Slack: {channel[:8]}]"
-        persona_id = "persona_lead_developer"
-        steps = [
-            "Fetch latest branch commits from GitHub",
-            "Initialize sandboxed virtual environment",
-            "Execute pytest test suite locally",
-            f"Report test outcomes back to Slack channel {channel}"
-        ]
-    elif "deploy" in text_lower:
-        task_title = f"Autopilot Cloud Run Deploy [Slack: {channel[:8]}]"
-        persona_id = "persona_lead_developer"
-        steps = [
-            "Trigger cloud container rebuild via Cloud Build",
-            "Update routing paths on Google Cloud Run",
-            "Perform live endpoint network health checks",
-            f"Post active deployment URL back to Slack channel {channel}"
-        ]
-    elif "spec" in text_lower or "prd" in text_lower:
-        task_title = f"Compile Agile Specifications [Slack: {channel[:8]}]"
-        persona_id = "persona_product_manager"
-        steps = [
-            "Analyze telemetry streams and draft specifications",
-            "Synthesize sequence architecture diagrams",
-            "Format stories using Gherkin Given-When-Then rules",
-            f"Upload specification PDF and notify channel {channel}"
-        ]
-        
-    if task_title and steps:
-        # Match an active standard agent in the database to execute this task
-        cursor.execute("SELECT id FROM users WHERE role = 'agent' AND functional_role LIKE ? LIMIT 1", 
-                       (f"%{persona_id.split('_')[-1]}%",))
-        row = cursor.fetchone()
-        if row:
-            target_user_id = row["id"]
-        else:
-            # Fallback to default seeded agent if none found
-            target_user_id = "usr_agent_pm" if "product" in persona_id else "usr_agent_dev"
-            
-        task_id = f"task_slack_{uuid.uuid4().hex[:6]}"
-        now = datetime.datetime.utcnow().isoformat()
-        steps_str = "||".join(steps)
-        
-        cursor.execute("""
-        INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
-        """, (task_id, target_user_id, persona_id, task_title, steps_str, "pending", now))
-        db.commit()
-        
-        print(f"Slack Webhook: Created task {task_id} successfully based on message: '{text}'")
-        return {
-            "status": "triggered",
-            "task_id": task_id,
-            "assigned_to": target_user_id,
-            "message": f"Successfully queued task based on Slack message: '{text}'"
-        }
-        
-    return {"status": "completed", "details": "Message processed but did not match a triggering command."}
 
 @app.get("/api/extension/download")
 def download_extension():
@@ -391,11 +319,10 @@ def get_dashboard():
             return f.read()
     return HTMLResponse(content="Dashboard HTML loading... Please call /api/metadata", status_code=200)
 
-# Auth Endpoint: Performs secure hashing validation and returns stateful tokens
+# Auth Endpoint
 @app.post("/api/auth/login")
 def login(payload: LoginPayload, db = Depends(get_db)):
     cursor = db.cursor()
-    # 1. Resolve company (case-insensitive)
     cursor.execute("SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?)", (payload.company_name.strip(),))
     crow = cursor.fetchone()
     if not crow:
@@ -404,7 +331,6 @@ def login(payload: LoginPayload, db = Depends(get_db)):
     company_id = crow["id"]
     hashed_pass = hash_password(payload.password)
     
-    # 2. Authenticate user
     cursor.execute("""
     SELECT users.*, companies.name as company_name 
     FROM users 
@@ -418,24 +344,19 @@ def login(payload: LoginPayload, db = Depends(get_db)):
         
     user = dict(row)
     
-    # 3. Create a stateful, secure token session
     token = str(uuid.uuid4())
-    # Session valid for 24 hours
     expires_at = (datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat()
     
     cursor.execute("INSERT INTO sessions VALUES (?, ?, ?)", (token, user["id"], expires_at))
     db.commit()
     
-    # Return user details alongside secure session token
     user["token"] = token
-    # Exclude hashed password from response payload
     user.pop("password", None)
     return user
 
 # Multi-tenant Creation: Add Company (GLOBAL ADMIN ONLY)
 @app.post("/api/companies")
 def create_company(payload: CompanyCreatePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
-    # RBAC Enforcement: Global Admin only
     if current_user["role"] != "global_admin":
         raise HTTPException(status_code=403, detail="Forbidden: Only Doppler Global Administrators can register customer companies.")
         
@@ -450,9 +371,7 @@ def create_company(payload: CompanyCreatePayload, current_user = Depends(get_cur
     hashed_pass = hash_password(payload.admin_password)
     
     try:
-        # Create company
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (company_id, payload.name, now))
-        # Create company admin
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
             admin_user_id, company_id, payload.admin_username, hashed_pass, "co_admin", "Company Administrator", "learn", now
         ))
@@ -474,7 +393,6 @@ def list_companies(current_user = Depends(get_current_user), db = Depends(get_db
 # Multi-tenant Creation: Add Agent User (GLOBAL ADMIN ONLY)
 @app.post("/api/users")
 def create_user(payload: UserCreatePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
-    # RBAC Enforcement: Only Global Admin can create users
     if current_user["role"] != "global_admin":
         raise HTTPException(status_code=403, detail="Forbidden: Only Doppler Global Administrators can provision agent accounts.")
         
@@ -543,7 +461,6 @@ def delete_user(user_id: str, current_user = Depends(get_current_user), db = Dep
     if not cursor.fetchone():
         raise HTTPException(status_code=404, detail="User not found")
         
-    # Delete dependent telemetry, tasks, and sessions
     cursor.execute("DELETE FROM telemetry WHERE user_id = ?", (user_id,))
     cursor.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
     cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
@@ -555,11 +472,9 @@ def delete_user(user_id: str, current_user = Depends(get_current_user), db = Dep
 def list_users(company_id: Optional[str] = None, current_user = Depends(get_current_user), db = Depends(get_db)):
     cursor = db.cursor()
     
-    # RBAC Data leak restriction: Co Admins can only view users under their own company!
     if current_user["role"] == "co_admin":
         company_id = current_user["company_id"]
     elif current_user["role"] == "agent":
-        # Standard agents cannot list other users
         raise HTTPException(status_code=403, detail="Forbidden: Standard agents are restricted from browsing user directories.")
         
     query = "SELECT users.*, companies.name as company_name FROM users JOIN companies ON users.company_id = companies.id"
@@ -575,14 +490,13 @@ def list_users(company_id: Optional[str] = None, current_user = Depends(get_curr
     result = []
     for r in rows:
         d = dict(r)
-        d.pop("password", None) # Privacy: Never expose hashed passwords
+        d.pop("password", None)
         result.append(d)
     return result
 
-# Client Toggle Learn/Run Mode (Standard Agents can modify their own mode)
+# Client Toggle Learn/Run Mode
 @app.post("/api/users/toggle-mode")
 def toggle_user_mode(payload: ModeTogglePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
-    # RBAC: Agents can only toggle *themselves*. Admins can toggle anyone.
     if current_user["role"] == "agent" and current_user["id"] != payload.user_id:
         raise HTTPException(status_code=403, detail="Forbidden: Agents cannot modify other users' client modes.")
         
@@ -596,34 +510,183 @@ def toggle_user_mode(payload: ModeTogglePayload, current_user = Depends(get_curr
     return {"status": "success", "user_id": payload.user_id, "mode": payload.mode}
 
 # -------------------------------------------------------------------------
-# MULTI-LEVEL SECURITY METRICS (Hiding values based on user role)
+# LEARNT RULES CRUD (Closes loop: Learning observations -> Autopilot Actions)
+# -------------------------------------------------------------------------
+@app.post("/api/learning/rules")
+def register_learnt_rule(payload: LearntRulePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
+    cursor = db.cursor()
+    rule_id = f"rule_{uuid.uuid4().hex[:8]}"
+    now = datetime.datetime.utcnow().isoformat()
+    
+    # Enforce multi-tenant boundaries
+    if current_user["role"] != "global_admin" and current_user["company_id"] != payload.company_id:
+        raise HTTPException(status_code=403, detail="Forbidden: Cannot write learnt rules for another company.")
+        
+    cursor.execute("""
+    INSERT INTO learnt_rules VALUES (?, ?, ?, ?, ?)
+    """, (rule_id, payload.company_id, payload.trigger_text.strip(), payload.reply_text.strip(), now))
+    db.commit()
+    return {"status": "success", "rule_id": rule_id, "created_at": now}
+
+@app.get("/api/learning/rules")
+def list_learnt_rules(current_user = Depends(get_current_user), db = Depends(get_db)):
+    cursor = db.cursor()
+    company_id = current_user["company_id"] if current_user["role"] != "global_admin" else None
+    
+    if company_id:
+        cursor.execute("SELECT * FROM learnt_rules WHERE company_id = ? ORDER BY created_at DESC", (company_id,))
+    else:
+        cursor.execute("SELECT * FROM learnt_rules ORDER BY created_at DESC")
+        
+    return [dict(row) for row in cursor.fetchall()]
+
+# -------------------------------------------------------------------------
+# REAL-TIME SLACK MESSAGE WEBHOOK TRIGGERS (INTEGRATED WITH LEARNT RULES)
+# -------------------------------------------------------------------------
+@app.post("/api/webhooks/slack")
+async def slack_webhook(payload: Dict[str, Any], db = Depends(get_db)):
+    """
+    Secure, real-time Slack Event Subscriptions Webhook.
+    Wired directly to the self-learning dynamic rules database. If an incoming
+    message matches a learnt pattern, it triggers an instant Autopilot Task!
+    """
+    if payload.get("type") == "url_verification":
+        return {"challenge": payload.get("challenge")}
+        
+    event = payload.get("event", {})
+    if not event:
+        return {"status": "ignored"}
+        
+    text = event.get("text", "").strip()
+    channel = event.get("channel", "")
+    
+    # Anti-loop protection
+    if event.get("bot_id") or event.get("subtype") == "bot_message":
+        return {"status": "ignored"}
+        
+    cursor = db.cursor()
+    
+    # A. Check against the dynamic Self-Learning rule base first!
+    # If the user taught Doppler "Trigger -> Response", look it up!
+    cursor.execute("""
+    SELECT learnt_rules.*, companies.id as co_id 
+    FROM learnt_rules 
+    JOIN companies ON learnt_rules.company_id = companies.id
+    WHERE LOWER(?) LIKE '%' || LOWER(learnt_rules.trigger_text) || '%' LIMIT 1
+    """, (text,))
+    
+    rule_row = cursor.fetchone()
+    if rule_row:
+        rule = dict(rule_row)
+        print(f"Self-Learning Match Found: Trigger '{rule['trigger_text']}' matches message '{text}'!")
+        
+        # Pull standard agent under that company to run the learned response!
+        cursor.execute("SELECT id, functional_role FROM users WHERE company_id = ? AND role = 'agent' LIMIT 1", (rule["company_id"],))
+        u_row = cursor.fetchone()
+        target_user_id = u_row["id"] if u_row else "usr_agent_pm"
+        persona_role = u_row["functional_role"] if u_row else "Product Manager"
+        
+        task_id = f"task_learnt_{uuid.uuid4().hex[:6]}"
+        now = datetime.datetime.utcnow().isoformat()
+        
+        task_title = f"Autopilot Learned Reply (Trigger: '{rule['trigger_text']}')"
+        steps = [
+            f"Waking up custom shadow {persona_role} assistant.",
+            "Analyzing incoming Slack context stream.",
+            f"Pre-compiling learned response: '{rule['reply_text']}'.",
+            f"Posting response back to Slack channel {channel}."
+        ]
+        steps_str = "||".join(steps)
+        
+        cursor.execute("INSERT INTO tasks VALUES (?, ?, 'persona_product_manager', ?, ?, 'pending', ?, NULL, NULL)", (
+            task_id, target_user_id, task_title, steps_str, now
+        ))
+        db.commit()
+        return {
+            "status": "triggered_learnt_rule",
+            "task_id": task_id,
+            "assigned_to": target_user_id,
+            "trigger": rule["trigger_text"],
+            "reply": rule["reply_text"]
+        }
+        
+    # B. Fallback to hardcoded core templates if no custom rule matches
+    task_title = ""
+    steps = []
+    persona_id = ""
+    target_user_id = "usr_agent_pm"
+    
+    text_lower = text.lower()
+    if "test" in text_lower:
+        task_title = f"Automated Pytest Run [Slack: {channel[:8]}]"
+        persona_id = "persona_lead_developer"
+        steps = [
+            "Fetch latest branch commits from GitHub",
+            "Initialize sandboxed virtual environment",
+            "Execute pytest test suite locally",
+            f"Report test outcomes back to Slack channel {channel}"
+        ]
+    elif "deploy" in text_lower:
+        task_title = f"Autopilot Cloud Run Deploy [Slack: {channel[:8]}]"
+        persona_id = "persona_lead_developer"
+        steps = [
+            "Trigger cloud container rebuild via Cloud Build",
+            "Update routing paths on Google Cloud Run",
+            "Perform live endpoint network health checks",
+            f"Post active deployment URL back to Slack channel {channel}"
+        ]
+    elif "spec" in text_lower or "prd" in text_lower:
+        task_title = f"Compile Agile Specifications [Slack: {channel[:8]}]"
+        persona_id = "persona_product_manager"
+        steps = [
+            "Analyze telemetry streams and draft specifications",
+            "Synthesize sequence architecture diagrams",
+            "Format stories using Gherkin Given-When-Then rules",
+            f"Upload specification PDF and notify channel {channel}"
+        ]
+        
+    if task_title and steps:
+        cursor.execute("SELECT id FROM users WHERE role = 'agent' AND functional_role LIKE ? LIMIT 1", 
+                       (f"%{persona_id.split('_')[-1]}%",))
+        row = cursor.fetchone()
+        if row:
+            target_user_id = row["id"]
+            
+        task_id = f"task_slack_{uuid.uuid4().hex[:6]}"
+        now = datetime.datetime.utcnow().isoformat()
+        steps_str = "||".join(steps)
+        
+        cursor.execute("""
+        INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+        """, (task_id, target_user_id, persona_id, task_title, steps_str, "pending", now))
+        db.commit()
+        return {
+            "status": "triggered",
+            "task_id": task_id,
+            "assigned_to": target_user_id
+        }
+        
+    return {"status": "completed", "details": "No rule match."}
+
+# -------------------------------------------------------------------------
+# METRICS & BILLING ESTIMATES (Calculated proportionally)
 # -------------------------------------------------------------------------
 @app.get("/api/metrics")
 def get_metrics(company_id: Optional[str] = None, user_id: Optional[str] = None, current_user = Depends(get_current_user), db = Depends(get_db)):
-    """
-    Production-grade metrics calculation. Enforces extreme data boundaries:
-    - Standard agents: only get their own metrics.
-    - Company admins: only get their own company metrics.
-    - Global admins: full visibility.
-    """
     cursor = db.cursor()
-    
     role = current_user["role"]
     
-    # 1. Enforce RBAC metrics isolation
     if role == "agent":
         user_id = current_user["id"]
         company_id = current_user["company_id"]
     elif role == "co_admin":
         company_id = current_user["company_id"]
-        user_id = None # Co admins see company aggregate, can filter specific users, but can't see other cos or global
+        user_id = None
         
-    # Global metrics
     global_telemetry = 0
     global_tasks = 0
     global_cost = 0.0
     
-    # ONLY calculate global metrics for GLOBAL_ADMINS to protect performance and prevent leak
     if role == "global_admin":
         cursor.execute("SELECT COUNT(*) FROM telemetry")
         global_telemetry = cursor.fetchone()[0]
@@ -631,28 +694,17 @@ def get_metrics(company_id: Optional[str] = None, user_id: Optional[str] = None,
         global_tasks = cursor.fetchone()[0]
         global_cost = (global_telemetry * 0.000002) + (global_tasks * 0.00005)
         
-    # Company Metrics Filter
     company_telemetry = 0
     company_tasks = 0
     company_cost = 0.0
     
     if company_id:
-        cursor.execute("""
-        SELECT COUNT(*) FROM telemetry 
-        JOIN users ON telemetry.user_id = users.id 
-        WHERE users.company_id = ?
-        """, (company_id,))
+        cursor.execute("SELECT COUNT(*) FROM telemetry JOIN users ON telemetry.user_id = users.id WHERE users.company_id = ?", (company_id,))
         company_telemetry = cursor.fetchone()[0]
-        
-        cursor.execute("""
-        SELECT COUNT(*) FROM tasks 
-        JOIN users ON tasks.user_id = users.id 
-        WHERE users.company_id = ?
-        """, (company_id,))
+        cursor.execute("SELECT COUNT(*) FROM tasks JOIN users ON tasks.user_id = users.id WHERE users.company_id = ?", (company_id,))
         company_tasks = cursor.fetchone()[0]
         company_cost = (company_telemetry * 0.000002) + (company_tasks * 0.00005)
         
-    # User Metrics Filter
     user_telemetry = 0
     user_tasks = 0
     user_cost = 0.0
@@ -689,10 +741,9 @@ def get_metrics(company_id: Optional[str] = None, user_id: Optional[str] = None,
         }
     }
 
-# Ingest Telemetry (Standard CLI / Extension packets)
+# Ingest Telemetry
 @app.post("/api/telemetry")
 def ingest_telemetry(payload: TelemetryPayload, db = Depends(get_db)):
-    """Inbound telemetry pipeline."""
     cursor = db.cursor()
     record_id = str(uuid.uuid4())
     now = datetime.datetime.utcnow().isoformat()
@@ -802,7 +853,6 @@ def get_tasks(company_id: Optional[str] = None, user_id: Optional[str] = None, s
 
 @app.post("/api/tasks")
 def create_task(payload: TaskCreatePayload, current_user = Depends(get_current_user), db = Depends(get_db)):
-    # Standard security check on tasks creation
     if current_user["role"] == "agent" and current_user["id"] != payload.user_id:
         raise HTTPException(status_code=403, detail="Forbidden: Agents can only queue tasks for themselves.")
         
@@ -816,9 +866,9 @@ def create_task(payload: TaskCreatePayload, current_user = Depends(get_current_u
         raise HTTPException(status_code=404, detail="Target agent user not found.")
         
     cursor.execute("""
-    INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+    INSERT INTO tasks VALUES (?, ?, 'persona_product_manager', ?, ?, 'pending', ?, NULL, NULL)
     """, (
-        task_id, payload.user_id, payload.persona_id, payload.title, steps_str, "pending", now
+        task_id, payload.user_id, payload.title, steps_str, now
     ))
     db.commit()
     return {"status": "success", "task_id": task_id, "created_at": now}
@@ -832,7 +882,6 @@ def approve_task(task_id: str, current_user = Depends(get_current_user), db = De
         raise HTTPException(status_code=404, detail="Task not found")
     task = dict(row)
     
-    # Verify standard agent is not approving another user's task
     if current_user["role"] == "agent" and current_user["id"] != task["user_id"]:
         raise HTTPException(status_code=403, detail="Forbidden: Restricted from approving other agents' tasks.")
         
