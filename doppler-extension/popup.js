@@ -97,7 +97,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       try {
         const res = await fetch(`${serverUrl}/api/users/toggle-mode`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "X-Doppler-Token": data.user.token
+          },
           body: JSON.stringify({ user_id: data.user.id, mode })
         });
         
