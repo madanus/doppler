@@ -10,7 +10,7 @@ import sqlite3
 app = FastAPI(
     title="Doppler AI Control Plane",
     description="Multi-tenant serverless control plane for Doppler on-desktop self-learning agents",
-    version="2.2.0"
+    version="2.3.0"
 )
 
 # -------------------------------------------------------------------------
@@ -18,11 +18,11 @@ app = FastAPI(
 # -------------------------------------------------------------------------
 DB_FILE = "/tmp/doppler.db" if os.environ.get("GAE_ENV") or os.environ.get("K_SERVICE") else "doppler.db"
 
-# Force recreate DB on startup once to cleanly apply the new functional_role column schema
+# Force recreate DB on startup once to cleanly apply schema changes
 if os.path.exists(DB_FILE) and not os.environ.get("GAE_ENV") and not os.environ.get("K_SERVICE"):
     try:
         os.remove(DB_FILE)
-        print("Legacy local SQLite DB removed for functional_role schema migration.")
+        print("Legacy local SQLite DB removed for user management CRUD schema migration.")
     except Exception as e:
         print(f"Failed to remove legacy DB: {e}")
 
@@ -47,7 +47,7 @@ def init_db():
     )
     """)
     
-    # 2. Users Table (Now with functional_role column)
+    # 2. Users Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -122,7 +122,7 @@ def init_db():
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (co_touchtap, "TouchTap Technologies", now))
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (co_madalgos, "MadAlgos AI Corp", now))
         
-        # Seed Users (Including functional_role values)
+        # Seed Users
         # Global Admin
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
             "usr_global_admin", co_global, "admin", "admin123", "global_admin", "Global Administrator", "learn", now
@@ -226,6 +226,12 @@ class UserCreatePayload(BaseModel):
     role: str # 'co_admin' or 'agent'
     functional_role: Optional[str] = "Product Manager"
 
+class UserUpdatePayload(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    functional_role: Optional[str] = None
+
 class ModeTogglePayload(BaseModel):
     user_id: str
     mode: str # 'learn' or 'run'
@@ -309,7 +315,7 @@ def list_companies(db = Depends(get_db)):
     cursor.execute("SELECT * FROM companies")
     return [dict(row) for row in cursor.fetchall()]
 
-# Multi-tenant Creation: Add Agent User (With functional_role support)
+# Multi-tenant Creation: Add Agent User
 @app.post("/api/users")
 def create_user(payload: UserCreatePayload, db = Depends(get_db)):
     cursor = db.cursor()
@@ -321,20 +327,81 @@ def create_user(payload: UserCreatePayload, db = Depends(get_db)):
     user_id = f"usr_{uuid.uuid4().hex[:8]}"
     now = datetime.datetime.utcnow().isoformat()
     
-    # Save with both permission role and professional/functional role!
+    # Save with both permission role and professional/functional role
     cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
         user_id, payload.company_id, payload.username, payload.password, payload.role, payload.functional_role, "learn", now
     ))
     db.commit()
     return {"status": "success", "user_id": user_id}
 
+# Multi-tenant Edit/Change Password: Global Admin Power
+@app.put("/api/users/{user_id}")
+def update_user(user_id: str, payload: UserUpdatePayload, db = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT id, company_id FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    company_id = row["company_id"]
+    
+    # Build dynamic update statement
+    fields = []
+    params = []
+    if payload.username is not None:
+        fields.append("username = ?")
+        params.append(payload.username)
+    if payload.password is not None:
+        fields.append("password = ?")
+        params.append(payload.password)
+    if payload.role is not None:
+        fields.append("role = ?")
+        params.append(payload.role)
+    if payload.functional_role is not None:
+        fields.append("functional_role = ?")
+        params.append(payload.functional_role)
+        
+    if not fields:
+        return {"status": "no-op"}
+        
+    params.append(user_id)
+    query = f"UPDATE users SET {', '.join(fields)} WHERE id = ?"
+    try:
+        cursor.execute(query, tuple(params))
+        db.commit()
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Username already exists in this company")
+        
+    return {"status": "success", "user_id": user_id}
+
+# Multi-tenant Delete User: Global Admin Power
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: str, db = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # Delete telemetry and tasks of the user first to maintain database referential integrity
+    cursor.execute("DELETE FROM telemetry WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
+    
+    # Delete user
+    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    db.commit()
+    return {"status": "success", "user_id": user_id}
+
 @app.get("/api/users")
 def list_users(company_id: Optional[str] = None, db = Depends(get_db)):
     cursor = db.cursor()
+    query = "SELECT users.*, companies.name as company_name FROM users JOIN companies ON users.company_id = companies.id"
+    params = []
+    
     if company_id:
-        cursor.execute("SELECT * FROM users WHERE company_id = ?", (company_id,))
-    else:
-        cursor.execute("SELECT * FROM users")
+        query += " WHERE users.company_id = ?"
+        params.append(company_id)
+        
+    cursor.execute(query, tuple(params))
     return [dict(row) for row in cursor.fetchall()]
 
 # Client Toggle Learn/Run Mode

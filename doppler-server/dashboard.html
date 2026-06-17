@@ -109,7 +109,7 @@
             <!-- ROW 1: Multi-level Cost Split Summary -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <!-- Global Level Cost -->
-                <div class="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
+                <div id="card-cost-global" class="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
                     <span class="text-xs text-gray-400 uppercase font-semibold font-mono">Global Infrastructure Cost</span>
                     <div class="mt-2">
                         <span id="cost-global" class="text-3xl font-bold text-white font-mono">$0.00</span>
@@ -118,8 +118,8 @@
                     <p class="text-[10px] text-gray-500 mt-2">All companies & agent telemetry aggregates</p>
                 </div>
                 <!-- Company Level Cost -->
-                <div class="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
-                    <span class="text-xs text-gray-400 uppercase font-semibold font-mono">Company Share Cost</span>
+                <div id="card-cost-company" class="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 uppercase font-semibold font-mono font-bold text-indigo-400">Company Share Cost</span>
                     <div class="mt-2">
                         <span id="cost-company" class="text-3xl font-bold text-indigo-400 font-mono">$0.00</span>
                         <span class="text-xs text-gray-400 ml-1">/ Month</span>
@@ -127,8 +127,8 @@
                     <p class="text-[10px] text-gray-500 mt-2">Proportional calculation based on company telemetry</p>
                 </div>
                 <!-- User Level Cost -->
-                <div class="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
-                    <span class="text-xs text-gray-400 uppercase font-semibold font-mono">Your Individual Session Cost</span>
+                <div id="card-cost-user" class="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
+                    <span class="text-xs text-gray-400 uppercase font-semibold font-mono text-purple-400">Your Individual Session Cost</span>
                     <div class="mt-2">
                         <span id="cost-user" class="text-3xl font-bold text-purple-400 font-mono">$0.00</span>
                         <span class="text-xs text-gray-400 ml-1">/ Month</span>
@@ -163,7 +163,7 @@
                             </button>
                         </form>
 
-                        <!-- Create Agent Form (GLOBAL ADMIN EXCLUSIVE POWER) -->
+                        <!-- Create Agent Form -->
                         <form onsubmit="handleCreateAgentGlobal(event)" class="bg-gray-900/40 border border-gray-800 p-4 rounded-xl space-y-4">
                             <h4 class="text-xs font-bold text-white uppercase font-mono">➕ Provision New Agent under Customer Company</h4>
                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -173,13 +173,11 @@
                                 <input type="text" id="new-agent-username" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Username">
                                 <input type="password" id="new-agent-password" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Password">
                                 
-                                <!-- Permission Role -->
                                 <select id="new-agent-role" class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
                                     <option value="agent">Standard Agent</option>
                                     <option value="co_admin">Co-level Admin</option>
                                 </select>
                                 
-                                <!-- Professional/Functional Role -->
                                 <select id="new-agent-functional-role" onchange="toggleCustomRoleInput(this.value)" class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
                                     <option value="Product Manager">Product Manager</option>
                                     <option value="Lead Developer">Lead Developer</option>
@@ -187,7 +185,7 @@
                                     <option value="custom">-- Custom Role --</option>
                                 </select>
                                 
-                                <input type="text" id="new-agent-custom-role-input" class="hidden bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans" placeholder="Type Custom Role Name...">
+                                <input type="text" id="new-agent-custom-role-input" class="hidden bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans md:col-span-2 lg:col-span-5" placeholder="Type Custom Role Name...">
                             </div>
                             <button type="submit" class="text-xs px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-semibold transition">
                                 Provision User Account
@@ -199,6 +197,27 @@
                             <h4 class="text-xs font-bold text-gray-400 uppercase font-mono">Active Companies Registered</h4>
                             <div id="global-companies-list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <!-- Dynamically filled -->
+                            </div>
+                        </div>
+
+                        <!-- User Management CRUD Panel (GLOBAL ADMIN EXCLUSIVE) -->
+                        <div class="space-y-2 pt-4 border-t border-gray-900">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase font-mono">👥 User Directory & Multi-tenant CRUD Manager</h4>
+                            <div class="overflow-x-auto bg-gray-900/30 border border-gray-800 rounded-xl">
+                                <table class="w-full text-left text-xs border-collapse font-sans">
+                                    <thead>
+                                        <tr class="border-b border-gray-800 bg-gray-950/40 text-gray-400 font-mono font-semibold">
+                                            <th class="p-3">Company</th>
+                                            <th class="p-3">Username</th>
+                                            <th class="p-3">Sys Role</th>
+                                            <th class="p-3">Agent Role</th>
+                                            <th class="p-3 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="crud-user-rows">
+                                        <!-- Dynamically filled with Edit, Change password, Delete actions -->
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -290,7 +309,7 @@
                     <div class="bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-4">
                         <div class="flex items-center justify-between">
                             <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">🔌 Doppler Chrome Extension Login</h3>
-                            <span class="text-[10px] font-mono bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full font-bold">Manifest V3 package</span>
+                            <span class="text-[10px] font-mono bg-green-500/20 text-green-400 px-2.5 py-0.5 rounded-full font-bold">Manifest V3 package</span>
                         </div>
                         <p class="text-xs text-gray-400 leading-relaxed">
                             Doppler provides a lightweight Chrome Extension to monitor focus tabs and stream browser interactions. You can download the extension source files, unpack them in Developer Mode on Chrome, and use your credentials to login and toggle modes directly from your toolbar!
@@ -298,7 +317,7 @@
                         <div class="bg-gray-900 border border-gray-800 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
                             <div class="space-y-1">
                                 <h4 class="text-xs font-bold text-white font-mono">Download doppler-extension.zip</h4>
-                                <p class="text-[10px] text-gray-500 font-mono">Now configured for multi-company scoped user logins!</p>
+                                <p class="text-[10px] text-gray-500 font-mono font-semibold">Ready for Chrome Unpacking & Developer Installation</p>
                             </div>
                             <button onclick="window.location.href='/api/extension/download'" class="text-xs px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition duration-150">
                                 📦 Download Extension Pack
@@ -371,7 +390,7 @@
             document.getElementById("login-screen").classList.remove("hidden");
         }
 
-        // Set up UI depending on Role
+        // Set up UI depending on Role & Apply strict information isolation boundaries
         function setupDashboardUI() {
             document.getElementById("login-screen").classList.add("hidden");
             document.getElementById("dashboard-screen").classList.remove("hidden");
@@ -385,13 +404,34 @@
             document.getElementById("panel-co-admin").classList.add("hidden");
             document.getElementById("panel-agent").classList.add("hidden");
             
+            // Apply cost card isolation constraints
+            const cardGlobal = document.getElementById("card-cost-global");
+            const cardCompany = document.getElementById("card-cost-company");
+            const cardUser = document.getElementById("card-cost-user");
+            
             if (currentUser.role === "global_admin") {
+                // Global Admin can see everything
+                cardGlobal.classList.remove("hidden");
+                cardCompany.classList.remove("hidden");
+                cardUser.classList.remove("hidden");
+                
                 document.getElementById("panel-global-admin").classList.remove("hidden");
                 loadCompanies();
+                loadUsersCRUD();
             } else if (currentUser.role === "co_admin") {
+                // Co Admins cannot see global infra usage
+                cardGlobal.classList.add("hidden");
+                cardCompany.classList.remove("hidden");
+                cardUser.classList.remove("hidden");
+                
                 document.getElementById("panel-co-admin").classList.remove("hidden");
                 loadAgents();
             } else if (currentUser.role === "agent") {
+                // Standard Co Users can see neither global nor co-share infra usage
+                cardGlobal.classList.add("hidden");
+                cardCompany.classList.add("hidden");
+                cardUser.classList.remove("hidden");
+                
                 document.getElementById("panel-agent").classList.remove("hidden");
                 updateModeUI(currentUser.mode);
                 loadAgentTask();
@@ -419,6 +459,7 @@
                     document.getElementById("new-co-admin-user").value = "";
                     document.getElementById("new-co-admin-pass").value = "";
                     loadCompanies();
+                    loadUsersCRUD();
                 } else {
                     const err = await res.json();
                     alert("Error: " + err.detail);
@@ -457,20 +498,7 @@
             } catch(e) {}
         }
 
-        function toggleCustomRoleInput(val) {
-            const customInput = document.getElementById("new-agent-custom-role-input");
-            if (val === "custom") {
-                customInput.classList.remove("hidden");
-                customInput.required = true;
-                customInput.focus();
-            } else {
-                customInput.classList.add("hidden");
-                customInput.required = false;
-                customInput.value = "";
-            }
-        }
-
-        // Global Admin Exclusive: Create Agent User under Selected Company (With Functional Role Support)
+        // Global Admin Exclusive: Create Agent User under Selected Company
         async function handleCreateAgentGlobal(e) {
             e.preventDefault();
             const company_id = document.getElementById("new-agent-co-select").value;
@@ -498,9 +526,97 @@
                     document.getElementById("new-agent-co-select").value = "";
                     document.getElementById("new-agent-functional-role").value = "Product Manager";
                     toggleCustomRoleInput("");
+                    loadUsersCRUD();
                 } else {
                     const err = await res.json();
                     alert("Error: " + err.detail);
+                }
+            } catch(e) {}
+        }
+
+        // Global Admin Exclusive: Load User Directory & Multi-tenant CRUD Controls
+        async function loadUsersCRUD() {
+            try {
+                const res = await fetch('/api/users');
+                const users = await res.json();
+                const tbody = document.getElementById("crud-user-rows");
+                tbody.innerHTML = "";
+                
+                users.forEach(user => {
+                    // Exclude self (the active logged-in global admin) from modification list
+                    if (user.id === currentUser.id) return;
+                    
+                    tbody.innerHTML += `
+                        <tr class="border-b border-gray-800/60 hover:bg-gray-900/10 transition">
+                            <td class="p-3 font-semibold text-gray-300 font-sans">${user.company_name}</td>
+                            <td class="p-3 font-mono text-white">${user.username}</td>
+                            <td class="p-3"><span class="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800 text-gray-400 font-bold">${user.role.toUpperCase()}</span></td>
+                            <td class="p-3 font-mono text-indigo-300 font-semibold">${user.functional_role || 'Agent'}</td>
+                            <td class="p-3 text-right flex justify-end gap-1.5 font-mono">
+                                <button onclick="editUserPassword('${user.id}', '${user.username}')" class="text-[10px] text-yellow-400 hover:text-yellow-300 px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/20 hover:border-yellow-500/40 transition">🔑 Password</button>
+                                <button onclick="editUserRole('${user.id}', '${user.username}', '${user.functional_role}')" class="text-[10px] text-blue-400 hover:text-blue-300 px-2 py-1 rounded bg-blue-500/10 border border-blue-500/20 hover:border-blue-500/40 transition">👤 Role</button>
+                                <button onclick="deleteUser('${user.id}', '${user.username}')" class="text-[10px] text-red-400 hover:text-red-300 px-2 py-1 rounded bg-red-500/10 border border-red-500/20 hover:border-red-500/40 transition">🗑️ Delete</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch(e) {}
+        }
+
+        // Global Admin: Edit User Password
+        async function editUserPassword(user_id, username) {
+            const new_password = prompt(`Enter new password for user [${username}]:`);
+            if (new_password === null) return; // Cancelled
+            if (new_password.trim() === "") {
+                alert("Password cannot be blank.");
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/api/users/${user_id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: new_password })
+                });
+                if (res.status === 200) {
+                    alert(`Successfully updated password for user [${username}]!`);
+                    loadUsersCRUD();
+                }
+            } catch(e) {}
+        }
+
+        // Global Admin: Edit User professional role
+        async function editUserRole(user_id, username, current_role) {
+            const new_role = prompt(`Enter new professional/functional role for user [${username}]:`, current_role);
+            if (new_role === null) return;
+            if (new_role.trim() === "") {
+                alert("Role cannot be empty.");
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/api/users/${user_id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ functional_role: new_role })
+                });
+                if (res.status === 200) {
+                    alert(`Successfully updated professional role of user [${username}] to [${new_role}]!`);
+                    loadUsersCRUD();
+                }
+            } catch(e) {}
+        }
+
+        // Global Admin: Delete User
+        async function deleteUser(user_id, username) {
+            const confirm_del = confirm(`⚠️ WARNING: Are you sure you want to completely DELETE user [${username}]? This will wipe their telemetry and active autopilot queues from the cloud database permanently.`);
+            if (!confirm_del) return;
+            
+            try {
+                const res = await fetch(`/api/users/${user_id}`, { method: 'DELETE' });
+                if (res.status === 200) {
+                    alert(`User [${username}] has been deleted.`);
+                    loadUsersCRUD();
                 }
             } catch(e) {}
         }
@@ -650,7 +766,7 @@
         async function refreshData() {
             if (!currentUser) return;
             
-            // Query Metrics
+            // Query Metrics with strict permission filters applied
             let metricsUrl = '/api/metrics';
             if (currentUser.role === 'co_admin') {
                 metricsUrl += `?company_id=${currentUser.company_id}`;
@@ -662,13 +778,17 @@
                 const res = await fetch(metricsUrl);
                 const metrics = await res.json();
                 
-                // Set Cost details
-                document.getElementById("cost-global").innerText = "$" + metrics.global.estimated_cost_usd.toFixed(6);
-                document.getElementById("cost-company").innerText = "$" + metrics.company.estimated_cost_usd.toFixed(6);
+                // Set Cost details (Hiding global metrics on UI depending on roles)
+                if (currentUser.role === 'global_admin') {
+                    document.getElementById("cost-global").innerText = "$" + metrics.global.estimated_cost_usd.toFixed(6);
+                }
+                if (currentUser.role !== 'agent') {
+                    document.getElementById("cost-company").innerText = "$" + metrics.company.estimated_cost_usd.toFixed(6);
+                }
                 document.getElementById("cost-user").innerText = "$" + metrics.user.estimated_cost_usd.toFixed(6);
             } catch(e) {}
             
-            // Query Telemetry List
+            // Query Telemetry List with strict isolation boundaries
             let telUrl = '/api/telemetry';
             if (currentUser.role === 'co_admin') {
                 telUrl += `?company_id=${currentUser.company_id}`;
@@ -709,6 +829,20 @@
                     `;
                 });
             } catch(e) {}
+        }
+
+        // Toggle custom input field in forms
+        function toggleCustomRoleInput(val) {
+            const customInput = document.getElementById("new-agent-custom-role-input");
+            if (val === "custom") {
+                customInput.classList.remove("hidden");
+                customInput.required = true;
+                customInput.focus();
+            } else {
+                customInput.classList.add("hidden");
+                customInput.required = false;
+                customInput.value = "";
+            }
         }
 
         // Start handshakes
