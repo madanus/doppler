@@ -34,8 +34,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Login
   btnLogin.addEventListener("click", async () => {
+    const company_name = document.getElementById("ext-company").value.trim();
     const username = document.getElementById("ext-username").value.trim();
     const password = document.getElementById("ext-password").value;
+    
+    if (!company_name) {
+      alert("Please enter your Company Name.");
+      return;
+    }
     
     chrome.storage.local.get(["serverUrl"], async (data) => {
       const serverUrl = data.serverUrl || DEFAULT_SERVER_URL;
@@ -45,7 +51,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const res = await fetch(`${serverUrl}/api/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({ company_name, username, password })
         });
         
         if (res.status === 200) {
@@ -112,6 +118,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   function showLoginPanel() {
     panelActive.classList.add("hidden");
     panelLogin.classList.remove("hidden");
+    document.getElementById("ext-company").value = "";
     document.getElementById("ext-username").value = "";
     document.getElementById("ext-password").value = "";
   }

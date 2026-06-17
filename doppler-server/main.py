@@ -10,13 +10,22 @@ import sqlite3
 app = FastAPI(
     title="Doppler AI Control Plane",
     description="Multi-tenant serverless control plane for Doppler on-desktop self-learning agents",
-    version="2.0.0"
+    version="2.1.0"
 )
 
 # -------------------------------------------------------------------------
-# DATABASE CONFIGURATION (Serverless, multi-tenant SQLite setup)
+# DATABASE CONFIGURATION & UPGRADES (Multi-tenant SQLite schema)
 # -------------------------------------------------------------------------
 DB_FILE = "/tmp/doppler.db" if os.environ.get("GAE_ENV") or os.environ.get("K_SERVICE") else "doppler.db"
+
+# Force recreate DB on startup once to cleanly apply the new UNIQUE(company_id, username) constraint
+# and avoid SQLite constraint conflict errors on legacy databases.
+if os.path.exists(DB_FILE) and not os.environ.get("GAE_ENV") and not os.environ.get("K_SERVICE"):
+    try:
+        os.remove(DB_FILE)
+        print("Legacy local SQLite DB removed for schema migration.")
+    except Exception as e:
+        print(f"Failed to remove legacy DB: {e}")
 
 def get_db():
     conn = sqlite3.connect(DB_FILE)
@@ -34,22 +43,23 @@ def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS companies (
         id TEXT PRIMARY KEY,
-        name TEXT,
+        name TEXT UNIQUE,
         created_at TEXT
     )
     """)
     
-    # 2. Users Table
+    # 2. Users Table (Now with scoped composite UNIQUE on company_id + username)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         company_id TEXT,
-        username TEXT UNIQUE,
+        username TEXT,
         password TEXT,
         role TEXT, -- 'global_admin', 'co_admin', 'agent'
         mode TEXT, -- 'learn', 'run'
         created_at TEXT,
-        FOREIGN KEY(company_id) REFERENCES companies(id)
+        FOREIGN KEY(company_id) REFERENCES companies(id),
+        UNIQUE(company_id, username)
     )
     """)
     
@@ -98,7 +108,7 @@ def init_db():
     )
     """)
     
-    # Check if we need to seed the database
+    # Seed default entities
     cursor.execute("SELECT COUNT(*) FROM companies")
     if cursor.fetchone()[0] == 0:
         now = datetime.datetime.utcnow().isoformat()
@@ -162,7 +172,7 @@ def init_db():
                 0, now
             ))
             
-        # Seed some dummy telemetry logs to make the dashboard alive right away
+        # Seed initial dummy telemetry logs
         cursor.execute("INSERT INTO telemetry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (
             "tel_1", now, "usr_agent_pm", "Slack - #C0BATMT8XJA (Specs Channel)", "Active", 45, 12, "OCR: Text field focus 'Specs Input'", "{}"
         ))
@@ -179,6 +189,7 @@ init_db()
 # MODELS & SCHEMAS
 # -------------------------------------------------------------------------
 class LoginPayload(BaseModel):
+    company_name: str
     username: str
     password: str
 
@@ -235,37 +246,43 @@ def get_dashboard():
     Renders a unified multi-tenant login & control dashboard.
     """
     html_file_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
-    # Fallback to embedded string if file read fails (e.g. running on Cloud Run sandbox with paths)
     if os.path.exists(html_file_path):
         with open(html_file_path, "r") as f:
             return f.read()
-            
-    # Inline dashboard code is kept separately to ensure robust execution
     return HTMLResponse(content="Dashboard HTML loading... Please call /api/metadata", status_code=200)
 
 # Auth Endpoint
 @app.post("/api/auth/login")
 def login(payload: LoginPayload, db = Depends(get_db)):
     cursor = db.cursor()
+    # 1. Resolve company by name (case-insensitive)
+    cursor.execute("SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?)", (payload.company_name.strip(),))
+    crow = cursor.fetchone()
+    if not crow:
+        raise HTTPException(status_code=401, detail="Company not found")
+        
+    company_id = crow["id"]
+    
+    # 2. Authenticate user under that company
     cursor.execute("""
     SELECT users.*, companies.name as company_name 
     FROM users 
     JOIN companies ON users.company_id = companies.id 
-    WHERE users.username = ? AND users.password = ?
-    """, (payload.username, payload.password))
+    WHERE users.company_id = ? AND users.username = ? AND users.password = ?
+    """, (company_id, payload.username, payload.password))
     row = cursor.fetchone()
     if not row:
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+        raise HTTPException(status_code=401, detail="Invalid username or password under this company")
     return dict(row)
 
 # Multi-tenant Creation: Add Company
 @app.post("/api/companies")
 def create_company(payload: CompanyCreatePayload, db = Depends(get_db)):
     cursor = db.cursor()
-    # Check if admin username already exists
-    cursor.execute("SELECT id FROM users WHERE username = ?", (payload.admin_username,))
+    # Verify company name is unique
+    cursor.execute("SELECT id FROM companies WHERE LOWER(name) = LOWER(?)", (payload.name.strip(),))
     if cursor.fetchone():
-        raise HTTPException(status_code=400, detail="Admin username already exists")
+        raise HTTPException(status_code=400, detail="Company name already exists")
         
     company_id = f"co_{uuid.uuid4().hex[:8]}"
     admin_user_id = f"usr_{uuid.uuid4().hex[:8]}"
@@ -274,7 +291,7 @@ def create_company(payload: CompanyCreatePayload, db = Depends(get_db)):
     try:
         # Create company
         cursor.execute("INSERT INTO companies VALUES (?, ?, ?)", (company_id, payload.name, now))
-        # Create company admin
+        # Create company admin (username unique within this company_id)
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", (
             admin_user_id, company_id, payload.admin_username, payload.admin_password, "co_admin", "learn", now
         ))
@@ -295,9 +312,10 @@ def list_companies(db = Depends(get_db)):
 @app.post("/api/users")
 def create_user(payload: UserCreatePayload, db = Depends(get_db)):
     cursor = db.cursor()
-    cursor.execute("SELECT id FROM users WHERE username = ?", (payload.username,))
+    # Check uniqueness of username within that company ONLY
+    cursor.execute("SELECT id FROM users WHERE company_id = ? AND username = ?", (payload.company_id, payload.username))
     if cursor.fetchone():
-        raise HTTPException(status_code=400, detail="Username already exists")
+        raise HTTPException(status_code=400, detail="Username already exists in this company")
         
     user_id = f"usr_{uuid.uuid4().hex[:8]}"
     now = datetime.datetime.utcnow().isoformat()
@@ -312,7 +330,7 @@ def create_user(payload: UserCreatePayload, db = Depends(get_db)):
 def list_users(company_id: Optional[str] = None, db = Depends(get_db)):
     cursor = db.cursor()
     if company_id:
-        cursor.execute("SELECT * FROM users WHERE company_id = ? AND role = 'agent'", (company_id,))
+        cursor.execute("SELECT * FROM users WHERE company_id = ?", (company_id,))
     else:
         cursor.execute("SELECT * FROM users")
     return [dict(row) for row in cursor.fetchall()]

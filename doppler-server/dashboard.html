@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Doppler AI - Control Hub</title>
+    <title>Doppler AI - Multi-Tenant Control Hub</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script>
@@ -47,11 +47,15 @@
         <div class="max-w-md w-full bg-gray-950 border border-gray-800 p-8 rounded-2xl shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <div class="inline-flex w-12 h-12 rounded-xl bg-indigo-600 items-center justify-center font-bold text-2xl text-white">D</div>
-                <h2 class="text-2xl font-bold tracking-tight text-white">Sign in to Doppler Control Hub</h2>
-                <p class="text-xs text-gray-400">Enterprise AI Self-Learning Control Panel</p>
+                <h2 class="text-2xl font-bold tracking-tight text-white">Sign in to Doppler Hub</h2>
+                <p class="text-xs text-gray-400">Enterprise Multi-tenant Control Panel</p>
             </div>
             
             <form onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-mono text-gray-400 uppercase font-semibold mb-1">Company Name</label>
+                    <input type="text" id="login-company" required class="w-full bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-sans" placeholder="Doppler Global Operations, TouchTap Technologies">
+                </div>
                 <div>
                     <label class="block text-xs font-mono text-gray-400 uppercase font-semibold mb-1">Username</label>
                     <input type="text" id="login-username" required class="w-full bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="admin, touchtap_admin, agent_pm">
@@ -66,12 +70,13 @@
             </form>
             
             <div class="border-t border-gray-900 pt-4 text-center">
-                <p class="text-[10px] text-gray-500 font-mono">Demo Accounts: admin / admin123 (Global) | touchtap_admin / admin123 (Co Admin) | agent_pm / user123 (Agent)</p>
+                <p class="text-[10px] text-gray-500 font-mono">Demo: Company: Doppler Global Operations | User: admin | Pass: admin123</p>
+                <p class="text-[10px] text-gray-500 font-mono mt-0.5">Demo: Company: TouchTap Technologies | User: touchtap_admin | Pass: admin123</p>
             </div>
         </div>
     </div>
 
-    <!-- MAIN DASHBOARD CONTENT (HIDDEN BY DEFAULT) -->
+    <!-- MAIN DASHBOARD CONTENT -->
     <div id="dashboard-screen" class="hidden flex-1 flex flex-col">
         <!-- Header -->
         <header class="border-b border-gray-800 bg-gray-950/80 backdrop-blur px-6 py-4">
@@ -140,7 +145,10 @@
                     
                     <!-- GLOBAL ADMIN VIEW PANEL -->
                     <div id="panel-global-admin" class="hidden bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-6">
-                        <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">🏢 Global Operations: Manage Customer Companies</h3>
+                        <div class="flex items-center justify-between border-b border-gray-900 pb-3">
+                            <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">⚙️ Global Ops: Manage Companies & Agents</h3>
+                            <span class="text-[10px] bg-red-500/20 text-red-400 px-2.5 py-0.5 rounded-full font-mono font-bold">ROOT POWER</span>
+                        </div>
                         
                         <!-- Create Company Form -->
                         <form onsubmit="handleCreateCompany(event)" class="bg-gray-900/40 border border-gray-800 p-4 rounded-xl space-y-4">
@@ -155,6 +163,26 @@
                             </button>
                         </form>
 
+                        <!-- Create Agent Form (GLOBAL ADMIN EXCLUSIVE POWER) -->
+                        <form onsubmit="handleCreateAgentGlobal(event)" class="bg-gray-900/40 border border-gray-800 p-4 rounded-xl space-y-4">
+                            <h4 class="text-xs font-bold text-white uppercase font-mono">➕ Provision New Agent under Customer Company</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                <select id="new-agent-co-select" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <option value="">Select Company...</option>
+                                    <!-- Companies list dynamically populated -->
+                                </select>
+                                <input type="text" id="new-agent-username" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Username (e.g. agent_mkt)">
+                                <input type="password" id="new-agent-password" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Password">
+                                <select id="new-agent-role" class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <option value="agent">Standard Agent</option>
+                                    <option value="co_admin">Co-level Admin</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="text-xs px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-semibold transition">
+                                Provision User Account
+                            </button>
+                        </form>
+
                         <!-- Companies List -->
                         <div class="space-y-2">
                             <h4 class="text-xs font-bold text-gray-400 uppercase font-mono">Active Companies Registered</h4>
@@ -166,27 +194,18 @@
 
                     <!-- COMPANY ADMIN VIEW PANEL -->
                     <div id="panel-co-admin" class="hidden bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-6">
-                        <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">👥 Customer Co Workspace: Manage Agent Users</h3>
+                        <div class="flex items-center justify-between border-b border-gray-900 pb-3">
+                            <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">👥 Customer Co Workspace: View Team Status</h3>
+                            <span class="text-[10px] bg-indigo-500/20 text-indigo-400 px-2.5 py-0.5 rounded-full font-mono font-bold">CO ADMIN READ-ONLY</span>
+                        </div>
                         
-                        <!-- Create Agent User Form -->
-                        <form onsubmit="handleCreateAgent(event)" class="bg-gray-900/40 border border-gray-800 p-4 rounded-xl space-y-4">
-                            <h4 class="text-xs font-bold text-white uppercase font-mono">➕ Provision New Agent User</h4>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <input type="text" id="new-usr-username" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Agent Username">
-                                <input type="password" id="new-usr-password" required class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono" placeholder="Agent Password">
-                                <select id="new-usr-role" class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
-                                    <option value="agent">Standard Agent</option>
-                                    <option value="co_admin">Co-level Admin</option>
-                                </select>
-                            </div>
-                            <button type="submit" class="text-xs px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white font-semibold transition">
-                                Provision User Account
-                            </button>
-                        </form>
+                        <p class="text-xs text-gray-400 bg-gray-900/40 p-3 rounded-lg border border-gray-800">
+                            🔒 **Privacy Boundary Active:** Company Admins can inspect the active status of their company's custom agent users but are restricted from provisioning new agent accounts. To request new agents, please coordinate with your **Doppler Global Administrator**.
+                        </p>
 
                         <!-- Agents List -->
                         <div class="space-y-2">
-                            <h4 class="text-xs font-bold text-gray-400 uppercase font-mono">Company Agents & Users Active</h4>
+                            <h4 class="text-xs font-bold text-gray-400 uppercase font-mono font-semibold">Active Company Agents</h4>
                             <div id="co-agents-list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <!-- Dynamically filled -->
                             </div>
@@ -228,14 +247,12 @@
                                 <line x1="66" y1="50" x2="184" y2="50" stroke="#4f46e5" stroke-width="1.5" class="flow-line"/>
                                 <line x1="216" y1="50" x2="334" y2="50" stroke="#0ea5e9" stroke-width="1.5" class="flow-line"/>
 
-                                <!-- Anim packet based on mode -->
                                 <circle id="svg-packet" cx="50" cy="50" r="3.5" fill="#818cf8">
-                                    <!-- Injected programmatically based on active mode -->
                                 </circle>
                             </svg>
                         </div>
 
-                        <!-- Tasks Queue (Active during RUN mode) -->
+                        <!-- Tasks Queue -->
                         <div class="space-y-4">
                             <h4 class="text-xs font-bold text-gray-400 uppercase font-mono">Autopilot Task Action Queue</h4>
                             <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
@@ -258,11 +275,11 @@
                         </div>
                     </div>
 
-                    <!-- Chrome Extension Onboarding panel (Installable component) -->
+                    <!-- Chrome Extension Onboarding panel -->
                     <div class="bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-4">
                         <div class="flex items-center justify-between">
                             <h3 class="text-sm font-semibold uppercase font-mono tracking-wider text-white">🔌 Doppler Chrome Extension Login</h3>
-                            <span class="text-[10px] font-mono bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full font-bold">Extension Package ready</span>
+                            <span class="text-[10px] font-mono bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full font-bold">Manifest V3 package</span>
                         </div>
                         <p class="text-xs text-gray-400 leading-relaxed">
                             Doppler provides a lightweight Chrome Extension to monitor focus tabs and stream browser interactions. You can download the extension source files, unpack them in Developer Mode on Chrome, and use your credentials to login and toggle modes directly from your toolbar!
@@ -270,7 +287,7 @@
                         <div class="bg-gray-900 border border-gray-800 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
                             <div class="space-y-1">
                                 <h4 class="text-xs font-bold text-white font-mono">Download doppler-extension.zip</h4>
-                                <p class="text-[10px] text-gray-500">Includes manifest.json, popup.html, popup.js, background.js</p>
+                                <p class="text-[10px] text-gray-500 font-mono">Now configured for multi-company scoped user logins!</p>
                             </div>
                             <button onclick="window.location.href='/api/extension/download'" class="text-xs px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition duration-150">
                                 📦 Download Extension Pack
@@ -309,18 +326,20 @@
     <script>
         let currentUser = null;
         let activeTaskId = null;
+        let cachedCompanies = [];
 
         // Login Handler
         async function handleLogin(e) {
             e.preventDefault();
-            const username = document.getElementById("login-username").value.strip ? document.getElementById("login-username").value.strip() : document.getElementById("login-username").value;
+            const company_name = document.getElementById("login-company").value.trim();
+            const username = document.getElementById("login-username").value.trim();
             const password = document.getElementById("login-password").value;
             
             try {
                 const res = await fetch('/api/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ company_name, username, password })
                 });
                 
                 if (res.status === 200) {
@@ -401,11 +420,18 @@
         async function loadCompanies() {
             try {
                 const res = await fetch('/api/companies');
-                const cos = await res.json();
+                cachedCompanies = await res.json();
+                
                 const list = document.getElementById("global-companies-list");
                 list.innerHTML = "";
                 
-                cos.forEach(co => {
+                const dropdown = document.getElementById("new-agent-co-select");
+                dropdown.innerHTML = `<option value="">Select Company...</option>`;
+                
+                cachedCompanies.forEach(co => {
+                    // Do not list operational root company in customer list
+                    if (co.id === "co_global_admin") return;
+                    
                     list.innerHTML += `
                         <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-between text-xs">
                             <div>
@@ -415,28 +441,36 @@
                             <span class="text-[10px] bg-green-500/20 text-green-400 font-mono font-bold px-2 py-0.5 rounded-full">ACTIVE</span>
                         </div>
                     `;
+                    
+                    dropdown.innerHTML += `<option value="${co.id}">${co.name}</option>`;
                 });
             } catch(e) {}
         }
 
-        // Company Admin: Create Agent User
-        async function handleCreateAgent(e) {
+        // Global Admin Exclusive: Create Agent User under Selected Company
+        async function handleCreateAgentGlobal(e) {
             e.preventDefault();
-            const username = document.getElementById("new-usr-username").value;
-            const password = document.getElementById("new-usr-password").value;
-            const role = document.getElementById("new-usr-role").value;
+            const company_id = document.getElementById("new-agent-co-select").value;
+            const username = document.getElementById("new-agent-username").value;
+            const password = document.getElementById("new-agent-password").value;
+            const role = document.getElementById("new-agent-role").value;
+            
+            if (!company_id) {
+                alert("Please select a target customer company.");
+                return;
+            }
             
             try {
                 const res = await fetch('/api/users', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ company_id: currentUser.company_id, username, password, role })
+                    body: JSON.stringify({ company_id, username, password, role })
                 });
                 if (res.status === 200) {
-                    alert(`Successfully created user: ${username}!`);
-                    document.getElementById("new-usr-username").value = "";
-                    document.getElementById("new-usr-password").value = "";
-                    loadAgents();
+                    alert(`Successfully created agent user: ${username} under selected company!`);
+                    document.getElementById("new-agent-username").value = "";
+                    document.getElementById("new-agent-password").value = "";
+                    document.getElementById("new-agent-co-select").value = "";
                 } else {
                     const err = await res.json();
                     alert("Error: " + err.detail);
@@ -444,6 +478,7 @@
             } catch(e) {}
         }
 
+        // Co-level Admin: View Agents
         async function loadAgents() {
             try {
                 const res = await fetch(`/api/users?company_id=${currentUser.company_id}`);
@@ -456,7 +491,7 @@
                         <div class="p-3 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-between text-xs font-mono">
                             <div>
                                 <h5 class="font-bold text-white">👤 ${agent.username}</h5>
-                                <p class="text-[10px] text-gray-500 mt-0.5">ID: ${agent.id}</p>
+                                <p class="text-[10px] text-gray-500 mt-0.5">Role: ${agent.role.toUpperCase()}</p>
                             </div>
                             <span class="text-[10px] bg-purple-500/20 text-purple-400 font-bold px-2 py-0.5 rounded-full">${agent.mode.toUpperCase()} MODE</span>
                         </div>
@@ -489,7 +524,6 @@
                 btnLearn.className = "text-xs font-bold px-3 py-1 rounded-md bg-indigo-600 text-white shadow";
                 btnRun.className = "text-xs font-bold px-3 py-1 rounded-md text-gray-400 hover:text-white";
                 
-                // Packets float from Client -> Server (Learn/Upload)
                 packet.innerHTML = `
                     <animate attributeName="cx" values="50;350" dur="2s" repeatCount="indefinite" />
                     <animate attributeName="opacity" values="1;0" dur="2s" repeatCount="indefinite" />
@@ -498,7 +532,6 @@
                 btnLearn.className = "text-xs font-bold px-3 py-1 rounded-md text-gray-400 hover:text-white";
                 btnRun.className = "text-xs font-bold px-3 py-1 rounded-md bg-purple-600 text-white shadow";
                 
-                // Packets pull from Server -> Client (Run/Execution)
                 packet.innerHTML = `
                     <animate attributeName="cx" values="350;50" dur="2s" repeatCount="indefinite" />
                     <animate attributeName="opacity" values="1;0" dur="2s" repeatCount="indefinite" />
